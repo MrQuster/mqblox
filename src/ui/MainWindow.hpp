@@ -69,6 +69,7 @@ private:
     void syncUiFromSettings();
     void collectSettingsFromUi();
     void triggerInstantAutosave(const QString &toastMsg = {});
+    void saveSettingsNow(bool manualClick = true);
     void enqueueToast(const QString &msg);
     void processNextToast();
     void setupWebProfile(const QString &accId);
@@ -102,6 +103,8 @@ private:
     DarkComboBox *m_comboRes = nullptr;
     DarkComboBox *m_comboQuickAcc = nullptr;
     AnimButton *m_btnMax = nullptr;
+    AnimButton *m_btnSaveSettings = nullptr;
+    QLabel *m_lblAutosync = nullptr;
     QStackedWidget *m_pages = nullptr;
 
     QLineEdit *m_inpPlace = nullptr;

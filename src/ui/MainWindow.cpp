@@ -1,3 +1,5 @@
+#include <QGraphicsOpacityEffect>
+#include <QPropertyAnimation>
 #include "ui/MainWindow.hpp"
 #include <QApplication>
 #include <QDateTime>
@@ -41,7 +43,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_soberCtrl = new SoberController(&m_settingsMgr, this);
     m_apiClient = new RobloxApiClient(this);
 
-    setWindowTitle(tr("MqBlox v26.0 [HyperOS 4 Liquid Glass]"));
+    setWindowTitle(tr("MqBlox v27.0 [HyperOS 4 Liquid Glass]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
     if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -224,7 +226,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox v26.0 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox v27.0 — HyperOS 4 Liquid Glass"));
 
         auto *menu = new QMenu(nullptr);
         menu->setStyleSheet(
@@ -355,7 +357,7 @@ void MainWindow::initUi() {
 
     auto *topBar = new QHBoxLayout();
     topBar->setSpacing(8);
-    auto *topHint = new QLabel(tr("MqBlox v26.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
+    auto *topHint = new QLabel(tr("MqBlox v27.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
     topHint->setObjectName("SubText");
     topBar->addWidget(topHint);
 
@@ -416,19 +418,25 @@ void MainWindow::initUi() {
 
     auto *bottomBar = new QHBoxLayout();
     bottomBar->setSpacing(8);
-    auto *lblAutosync = new QLabel(tr("⚡ Авто-сохранение"));
-    lblAutosync->setObjectName("AutoSyncBadge");
+    m_lblAutosync = new QLabel(tr("✓ Настройки актуальны"));
+    m_lblAutosync->setObjectName("AutoSyncBadge");
+
+    m_btnSaveSettings = new AnimButton(tr("💾 Сохранить настройки"), nullptr, QColor(56, 189, 248));
+    m_btnSaveSettings->setToolTip(tr("Сохранить и применить все изменения настроек к клиенту Sober (Ctrl+S)"));
+    connect(m_btnSaveSettings, &QPushButton::clicked, this, [this]() { saveSettingsNow(true); });
+    new QShortcut(QKeySequence("Ctrl+S"), this, [this]() { saveSettingsNow(true); });
 
     auto *btnRejoin = new AnimButton(tr("🔄 Перезайти"));
-    connect(btnRejoin, &QPushButton::clicked, this, [this]() { m_soberCtrl->launchRoblox(); });
+    connect(btnRejoin, &QPushButton::clicked, this, [this]() { saveSettingsNow(false); m_soberCtrl->launchRoblox(); });
 
     auto *btnKill = new AnimButton(tr("🛑 Выйти из плейса"), nullptr, QColor(239, 68, 68), false, true);
     connect(btnKill, &QPushButton::clicked, this, [this]() { m_soberCtrl->stopRobloxAsync(); });
 
     auto *btnPlay = new AnimButton(tr("▶  ЗАПУСТИТЬ ИГРУ"), nullptr, QColor(16, 185, 129), true, false);
-    connect(btnPlay, &QPushButton::clicked, this, [this]() { m_soberCtrl->launchRoblox(); });
+    connect(btnPlay, &QPushButton::clicked, this, [this]() { saveSettingsNow(false); m_soberCtrl->launchRoblox(); });
 
-    bottomBar->addWidget(lblAutosync);
+    bottomBar->addWidget(m_lblAutosync);
+    bottomBar->addWidget(m_btnSaveSettings);
     bottomBar->addWidget(btnRejoin);
     bottomBar->addWidget(btnKill);
     bottomBar->addStretch();
@@ -1016,11 +1024,11 @@ QWidget *MainWindow::buildUpdatesPage() {
 
 void MainWindow::refreshGitUpdateStatus() {
     if (!m_lblGitVersionInfo || !m_updateLogView) return;
-    m_lblGitVersionInfo->setText(tr("🟢 <b>Установлена актуальная версия MqBlox v26.0 [HyperOS 4 Liquid Glass]</b>"));
+    m_lblGitVersionInfo->setText(tr("🟢 <b>Установлена актуальная версия MqBlox v27.0 [HyperOS 4 Liquid Glass]</b>"));
     m_updateLogView->setPlainText(
-        "✦ [v26.0] Устранены лаги CPU от фонового видео: Ultra-HD кэш Pexels #39811262\n"
-        "✦ [v26.0] Исправлены отступы карточек (18x16 px) и швы внутри списков выбора\n"
-        "✦ [v26.0] Передана нативная работа с микрофоном напрямую в Sober (Esc -> Settings)"
+        "✦ [v27.0] Устранены лаги CPU от фонового видео: Ultra-HD кэш Pexels #39811262\n"
+        "✦ [v27.0] Исправлены отступы карточек (18x16 px) и швы внутри списков выбора\n"
+        "✦ [v27.0] Передана нативная работа с микрофоном напрямую в Sober (Esc -> Settings)"
     );
 }
 
@@ -1135,10 +1143,40 @@ void MainWindow::collectSettingsFromUi() {
     s.customFflagsJson = m_fflagsEditor->toPlainText();
 }
 
+void MainWindow::saveSettingsNow(bool manualClick) {
+    collectSettingsFromUi();
+    QString err;
+    if (m_settingsMgr.saveAll(&err)) {
+        m_lblFflagsValidation->setText(tr("✓ Синтаксис FastFlags корректен и сохранён"));
+        m_lblFflagsValidation->setStyleSheet("color: #34D399; font-size: 11px; font-weight: 700;");
+        if (m_btnSaveSettings) {
+            m_btnSaveSettings->setText(tr("✓ Настройки сохранены"));
+            m_btnSaveSettings->setAccentColor(QColor(16, 185, 129), manualClick);
+        }
+        if (m_lblAutosync) {
+            m_lblAutosync->setText(tr("✓ Все изменения сохранены"));
+        }
+        if (manualClick) {
+            enqueueToast(tr("💾 Все настройки успешно сохранены и применены!"));
+        }
+    } else {
+        m_lblFflagsValidation->setText("⚠️ " + err);
+        m_lblFflagsValidation->setStyleSheet("color: #F87171; font-size: 11px; font-weight: 700;");
+        enqueueToast("⚠️ " + err);
+    }
+}
+
 void MainWindow::triggerInstantAutosave(const QString &toastMsg) {
     if (m_isLoadingUi) return;
     if (!toastMsg.isEmpty()) enqueueToast(toastMsg);
-    m_autosaveTimer->start(180);
+    if (m_btnSaveSettings) {
+        m_btnSaveSettings->setText(tr("💾 Сохранить настройки ●"));
+        m_btnSaveSettings->setAccentColor(QColor(245, 158, 11), true);
+    }
+    if (m_lblAutosync) {
+        m_lblAutosync->setText(tr("● Есть изменения"));
+    }
+    m_autosaveTimer->start(1200);
 }
 
 void MainWindow::enqueueToast(const QString &msg) {
@@ -1371,6 +1409,19 @@ void MainWindow::switchTab(int idx) {
         m_navButtons[i]->setActiveTab(static_cast<int>(i) == idx);
     }
     if (idx == 5) refreshGitUpdateStatus();
+    if (QWidget *w = m_pages->currentWidget()) {
+        if (idx != 0) {
+            auto *eff = new QGraphicsOpacityEffect(w);
+            w->setGraphicsEffect(eff);
+            auto *anim = new QPropertyAnimation(eff, "opacity", w);
+            anim->setDuration(220);
+            anim->setStartValue(0.15);
+            anim->setEndValue(1.0);
+            anim->setEasingCurve(QEasingCurve::OutCubic);
+            connect(anim, &QPropertyAnimation::finished, w, [w]() { w->setGraphicsEffect(nullptr); });
+            anim->start(QAbstractAnimation::DeleteWhenStopped);
+        }
+    }
 }
 
 void MainWindow::runWatchdogTick() {
