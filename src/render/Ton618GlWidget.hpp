@@ -1,9 +1,10 @@
 #pragma once
-#include <QByteArray>
 #include <QImage>
 #include <QPixmap>
-#include <QProcess>
 #include <QWidget>
+#include <atomic>
+#include <mutex>
+#include <thread>
 
 namespace mqblox {
 
@@ -28,16 +29,23 @@ protected:
     void hideEvent(QHideEvent *e) override;
 
 private:
-    void onStreamReadyRead();
-    void updateFrameAndFrostedMap(const QImage &srcImg);
+    void startDecoderThread();
+    void stopDecoderThread();
+    void decoderLoop();
+    void updateStaticCaches();
     void loadBestFallbackImage();
-    void syncPlaybackState();
-    static QImage applyHyperOsVibrantBlur(const QImage &src, int radius);
+    static QImage buildCrystalFrostedImage(const QImage &src, int radius);
 
-    QProcess *m_ffmpegProc = nullptr;
+    std::thread m_worker;
+    std::atomic<bool> m_stopWorker{false};
+    std::atomic<bool> m_paused{false};
+    std::atomic<bool> m_frameQueued{false};
+    std::atomic<int> m_targetW{1100};
+    std::atomic<int> m_targetH{660};
+
+    std::mutex m_pathMutex;
     QString m_videoPath;
-    QByteArray m_rawBuf;
-    QImage m_currentFrameImg;
+
     QImage m_fallbackImg;
     QPixmap m_scaledSharp;
     QPixmap m_scaledFrosted;

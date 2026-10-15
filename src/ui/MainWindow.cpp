@@ -43,7 +43,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_soberCtrl = new SoberController(&m_settingsMgr, this);
     m_apiClient = new RobloxApiClient(this);
 
-    setWindowTitle(tr("MqBlox v27.0 [HyperOS 4 Liquid Glass]"));
+    setWindowTitle(tr("MqBlox v28.0 [HyperOS 4 Liquid Glass]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
     if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -226,7 +226,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox v27.0 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox v28.0 — HyperOS 4 Liquid Glass"));
 
         auto *menu = new QMenu(nullptr);
         menu->setStyleSheet(
@@ -357,7 +357,7 @@ void MainWindow::initUi() {
 
     auto *topBar = new QHBoxLayout();
     topBar->setSpacing(8);
-    auto *topHint = new QLabel(tr("MqBlox v27.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
+    auto *topHint = new QLabel(tr("MqBlox v28.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
     topHint->setObjectName("SubText");
     topBar->addWidget(topHint);
 
@@ -1024,11 +1024,11 @@ QWidget *MainWindow::buildUpdatesPage() {
 
 void MainWindow::refreshGitUpdateStatus() {
     if (!m_lblGitVersionInfo || !m_updateLogView) return;
-    m_lblGitVersionInfo->setText(tr("🟢 <b>Установлена актуальная версия MqBlox v27.0 [HyperOS 4 Liquid Glass]</b>"));
+    m_lblGitVersionInfo->setText(tr("🟢 <b>Установлена актуальная версия MqBlox v28.0 [HyperOS 4 Liquid Glass]</b>"));
     m_updateLogView->setPlainText(
-        "✦ [v27.0] Устранены лаги CPU от фонового видео: Ultra-HD кэш Pexels #39811262\n"
-        "✦ [v27.0] Исправлены отступы карточек (18x16 px) и швы внутри списков выбора\n"
-        "✦ [v27.0] Передана нативная работа с микрофоном напрямую в Sober (Esc -> Settings)"
+        "✦ [v28.0] Устранены лаги CPU от фонового видео: Ultra-HD кэш Pexels #39811262\n"
+        "✦ [v28.0] Исправлены отступы карточек (18x16 px) и швы внутри списков выбора\n"
+        "✦ [v28.0] Передана нативная работа с микрофоном напрямую в Sober (Esc -> Settings)"
     );
 }
 

@@ -82,7 +82,7 @@ QSpinBox, QLineEdit {
     selection-color: #030408;
 }
 QListView#ComboPopupList {
-    background-color: rgba(12, 17, 32, 245);
+    background-color: rgba(10, 16, 32, 175);
     color: #F8FAFC;
     border: 1.5px solid rgba(255, 255, 255, 140);
     border-radius: 14px;
@@ -112,7 +112,7 @@ QCheckBox {
 }
 QCheckBox::indicator { width: 48px; height: 26px; }
 QTextEdit {
-    background-color: rgba(8, 12, 24, 165);
+    background-color: rgba(8, 14, 28, 65);
     color: #FDE68A;
     border: 1.2px solid rgba(255, 255, 255, 95);
     border-radius: 14px;
