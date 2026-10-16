@@ -1,6 +1,8 @@
 #pragma once
+#include <QColor>
 #include <QImage>
 #include <QPixmap>
+#include <QPointF>
 #include <QWidget>
 #include <atomic>
 #include <mutex>
@@ -22,6 +24,11 @@ public:
     const QPixmap &sharpBackdrop() const { return m_scaledSharp; }
     const QPixmap &frostedBackdrop() const { return m_scaledFrosted; }
 
+    // Мгновенное сэмплирование цвета фона прямо под координатами любого элемента интерфейса
+    QColor sampleAdaptiveColor(const QWidget *caller, const QPointF &localPos) const;
+    QColor ambientPrimary() const { return m_ambientPrimary; }
+    QColor ambientSecondary() const { return m_ambientSecondary; }
+
 protected:
     void paintEvent(QPaintEvent *e) override;
     void resizeEvent(QResizeEvent *e) override;
@@ -35,6 +42,10 @@ private:
     void updateStaticCaches();
     void loadBestFallbackImage();
     static QImage buildCrystalFrostedImage(const QImage &src, int radius);
+    static void buildAdaptiveColorMap(const QImage &srcSmall,
+                                      QImage &outMap,
+                                      QColor &outPrimary,
+                                      QColor &outSecondary);
 
     std::thread m_worker;
     std::atomic<bool> m_stopWorker{false};
@@ -47,6 +58,9 @@ private:
     QString m_videoPath;
 
     QImage m_fallbackImg;
+    QImage m_colorMap;
+    QColor m_ambientPrimary{251, 191, 36};
+    QColor m_ambientSecondary{56, 189, 248};
     QPixmap m_scaledSharp;
     QPixmap m_scaledFrosted;
     bool m_animEnabled = true;

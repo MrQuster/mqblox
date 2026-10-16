@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QRegularExpression>
+#include <QThread>
 
 namespace mqblox {
 
@@ -45,10 +46,16 @@ QString SettingsManager::parsePlaceUri(const QString &input) {
     if (rxDigits.match(s).hasMatch()) {
         return "roblox://experiences/start?placeId=" + s;
     }
-    static const QRegularExpression rxUrl("roblox\\.com/(?:[a-z]{2}/)?games/(\\d+)");
+    static const QRegularExpression rxUrl(
+        "roblox\\.com/(?:[a-z]{2}/)?games/(\\d+)(?:[^?]*\\?[^#]*privateServerLinkCode=([A-Za-z0-9_-]+))?");
     auto m = rxUrl.match(s);
     if (m.hasMatch()) {
-        return "roblox://experiences/start?placeId=" + m.captured(1);
+        QString placeId = m.captured(1);
+        QString linkCode = m.captured(2);
+        if (!linkCode.isEmpty()) {
+            return QString("roblox://experiences/start?placeId=%1&linkCode=%2").arg(placeId, linkCode);
+        }
+        return "roblox://experiences/start?placeId=" + placeId;
     }
     return {};
 }
@@ -130,6 +137,19 @@ void SettingsManager::loadAll() {
 
 bool SettingsManager::saveAll(QString *errMsg) {
     if (!writeSoberConfigJson(errMsg)) return false;
+
+    QString localApps = QDir::homePath() + "/.local/share/applications";
+    QDir().mkpath(localApps);
+    QString soberDesk = localApps + "/org.vinegarhq.Sober.desktop";
+    if (m_settings.hideSoberDesktop) {
+        QFile sf(soberDesk);
+        if (sf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            sf.write("[Desktop Entry]\nType=Application\nName=Sober\nNoDisplay=true\n");
+            sf.close();
+        }
+    } else {
+        QFile::remove(soberDesk);
+    }
 
     QJsonObject s;
     s["resMode"] = static_cast<int>(m_settings.resMode);
@@ -219,7 +239,11 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
     }
 
     QJsonObject fflags = customDoc.object();
-    fflags["DFIntTaskSchedulerTargetFps"] = m_settings.unlimitedFps ? 9999 : m_settings.targetFps;
+
+    int fpsVal = m_settings.unlimitedFps ? 9999 : m_settings.targetFps;
+    fflags["DFIntTaskSchedulerTargetFps"] = fpsVal;
+    fflags["FFlagTaskSchedulerLimitTargetFpsTo2402"] = false;
+    fflags["FFlagGameBasicSettingsFramerateCap5"] = true;
 
     if (m_settings.graphicsApi == GraphicsApi::Vulkan) {
         fflags["FFlagDebugGraphicsPreferVulkan"] = true;
@@ -237,11 +261,88 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["FFlagDebugForceFutureIsBrightPhase3"] = true;
     }
 
-    if (m_settings.noShadows) fflags["FIntRenderShadowIntensity"] = 0;
-    if (m_settings.ultraShadows) fflags["FIntRenderShadowMapBias"] = 0;
+    if (m_settings.textureQuality != TextureQuality::Auto) {
+        int texLvl = static_cast<int>(m_settings.textureQuality) - 1;
+        fflags["DFFlagTextureQualityOverrideEnabled"] = true;
+        fflags["DFIntTextureQualityOverride"] = texLvl;
+    }
+
+    int msaaSamples = 0;
+    if (m_settings.msaa == MsaaMode::X2) msaaSamples = 2;
+    else if (m_settings.msaa == MsaaMode::X4) msaaSamples = 4;
+    else if (m_settings.msaa == MsaaMode::X8) msaaSamples = 8;
+    if (msaaSamples > 0) {
+        fflags["FIntDebugForceMSAASamples"] = msaaSamples;
+    }
+
+    if (m_settings.frmQualityLevel > 0) {
+        fflags["DFIntDebugFRMQualityLevelOverride"] = m_settings.frmQualityLevel;
+        fflags["FIntRomarkStartWithGraphicQualityLevel"] = m_settings.frmQualityLevel;
+    }
+
+    if (m_settings.noShadows) {
+        fflags["FIntRenderShadowIntensity"] = 0;
+        fflags["DFIntCullFactorPixelThresholdShadowMapHighQuality"] = 0;
+        fflags["DFIntCullFactorPixelThresholdShadowMapLowQuality"] = 0;
+    } else if (m_settings.ultraShadows) {
+        fflags["FIntRenderShadowIntensity"] = 100;
+        fflags["FIntRenderShadowMapBias"] = 0;
+    }
+
     if (m_settings.noPostFx) fflags["FFlagDisablePostFx"] = true;
     if (m_settings.greySky) fflags["FFlagDebugSkyGray"] = true;
-    if (m_settings.frmQualityLevel > 0) fflags["DFIntDebugFRMQualityLevelOverride"] = m_settings.frmQualityLevel;
+
+    if (m_settings.lowMeshes) {
+        fflags["DFIntCSGLevelOfDetailSwitchingDistance"] = 0;
+        fflags["DFIntCSGLevelOfDetailSwitchingDistanceL12"] = 0;
+        fflags["DFIntCSGLevelOfDetailSwitchingDistanceL23"] = 0;
+        fflags["DFIntCSGLevelOfDetailSwitchingDistanceL34"] = 0;
+    }
+
+    if (m_settings.lowRamFflags) {
+        fflags["DFIntHttpCacheCleanMinFilesRequired"] = 300;
+        fflags["FIntRenderLocalLightUpdatesMax"] = 1;
+        fflags["DFIntTextureCompositorActiveJobs"] = 1;
+    }
+
+    if (m_settings.camZoom == CameraZoomMode::Medium500) {
+        fflags["FIntCameraMaxZoomDistance"] = 500;
+    } else if (m_settings.camZoom == CameraZoomMode::Far2000) {
+        fflags["FIntCameraMaxZoomDistance"] = 2000;
+    } else if (m_settings.camZoom == CameraZoomMode::Cosmic9999) {
+        fflags["FIntCameraMaxZoomDistance"] = 9999;
+    }
+
+    if (m_settings.netProfile == NetworkProfile::UltraLowPing) {
+        fflags["DFIntConnectionMTUSize"] = 1396;
+        fflags["FIntRakNetResendBufferArrayLength"] = 128;
+    } else {
+        fflags["DFIntConnectionMTUSize"] = 1492;
+    }
+
+    if (m_settings.showHudFps) {
+        fflags["FFlagDebugDisplayFPS"] = true;
+    }
+    if (m_settings.clearFog) {
+        fflags["FIntFRMMinGrassDistance"] = 0;
+        fflags["FIntFRMMaxGrassDistance"] = 0;
+        fflags["FIntRenderGrassDetailStrands"] = 0;
+    }
+
+    int threads = std::max(2, QThread::idealThreadCount());
+    if (m_settings.cpuVendor != CpuVendorMode::Auto) {
+        fflags["DFIntRuntimeConcurrency"] = threads;
+    }
+
+    if (m_settings.disableTelemetry) {
+        fflags["FFlagDebugDisableTelemetryEphemeralCounter"] = true;
+        fflags["FFlagDebugDisableTelemetryEphemeralStat"] = true;
+        fflags["FFlagDebugDisableTelemetryEventIngest"] = true;
+        fflags["FFlagDebugDisableTelemetryPoint"] = true;
+        fflags["FFlagDebugDisableTelemetryV2Counter"] = true;
+        fflags["FFlagDebugDisableTelemetryV2Event"] = true;
+        fflags["FFlagDebugDisableTelemetryV2Stat"] = true;
+    }
 
     QJsonObject soberCfg;
     soberCfg["bring_back_oof"] = m_settings.bringBackOof;

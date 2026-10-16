@@ -8,6 +8,7 @@
 #include <QProcess>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <vector>
 
@@ -19,15 +20,14 @@ QImage Ton618GlWidget::buildCrystalFrostedImage(const QImage &src, int radius) {
     const int w = img.width(), h = img.height();
     QImage tmp(w, h, QImage::Format_ARGB32_Premultiplied);
 
-    // HyperOS 4 Crystal Glass: усиливаем яркость и насыщенность свечения чёрной дыры под полупрозрачным стеклом
     for (int y = 0; y < h; ++y) {
         QRgb *line = reinterpret_cast<QRgb *>(img.scanLine(y));
         for (int x = 0; x < w; ++x) {
             int r = qRed(line[x]), g = qGreen(line[x]), b = qBlue(line[x]);
             int lum = (r * 77 + g * 150 + b * 29) >> 8;
-            r = std::clamp(lum + ((r - lum) * 165) / 100 + 10, 0, 255);
-            g = std::clamp(lum + ((g - lum) * 155) / 100 + 8, 0, 255);
-            b = std::clamp(lum + ((b - lum) * 170) / 100 + 14, 0, 255);
+            r = std::clamp(lum + ((r - lum) * 165) / 100 + 6, 0, 255);
+            g = std::clamp(lum + ((g - lum) * 155) / 100 + 5, 0, 255);
+            b = std::clamp(lum + ((b - lum) * 170) / 100 + 8, 0, 255);
             line[x] = qRgb(r, g, b);
         }
     }
@@ -73,6 +73,83 @@ QImage Ton618GlWidget::buildCrystalFrostedImage(const QImage &src, int radius) {
         }
     }
     return img;
+}
+
+void Ton618GlWidget::buildAdaptiveColorMap(const QImage &srcSmall,
+                                           QImage &outMap,
+                                           QColor &outPrimary,
+                                           QColor &outSecondary) {
+    QImage cmap = srcSmall.scaled(64, 36, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                      .convertToFormat(QImage::Format_RGB32);
+    const int w = cmap.width(), h = cmap.height();
+
+    double rAcc1 = 0, gAcc1 = 0, bAcc1 = 0, wAcc1 = 0.001;
+    double rAcc2 = 0, gAcc2 = 0, bAcc2 = 0, wAcc2 = 0.001;
+
+    for (int y = 0; y < h; ++y) {
+        const QRgb *line = reinterpret_cast<const QRgb *>(cmap.constScanLine(y));
+        for (int x = 0; x < w; ++x) {
+            int r = qRed(line[x]), g = qGreen(line[x]), b = qBlue(line[x]);
+            int cMax = std::max({r, g, b}), cMin = std::min({r, g, b});
+            double sat = (cMax - cMin) + 18.0;
+            double lum = (r + g + b) / 3.0;
+            double weight = sat * std::max(10.0, lum);
+            if (x < w / 2) {
+                rAcc1 += r * weight; gAcc1 += g * weight; bAcc1 += b * weight; wAcc1 += weight;
+            } else {
+                rAcc2 += r * weight; gAcc2 += g * weight; bAcc2 += b * weight; wAcc2 += weight;
+            }
+        }
+    }
+
+    auto normalizeVibrant = [](double r, double g, double b) -> QColor {
+        QColor c(std::clamp(int(r), 0, 255), std::clamp(int(g), 0, 255), std::clamp(int(b), 0, 255));
+        float hf = 0.08f, sf = 0.7f, lf = 0.68f;
+        c.getHslF(&hf, &sf, &lf);
+        if (hf < 0.0f) hf = 0.08f;
+        sf = std::clamp(sf * 1.45f + 0.25f, 0.55f, 0.96f);
+        lf = std::clamp(lf * 1.15f + 0.28f, 0.62f, 0.80f);
+        return QColor::fromHslF(hf, sf, lf);
+    };
+
+    outPrimary = normalizeVibrant(rAcc1 / wAcc1, gAcc1 / wAcc1, bAcc1 / wAcc1);
+    outSecondary = normalizeVibrant(rAcc2 / wAcc2, gAcc2 / wAcc2, bAcc2 / wAcc2);
+
+    // Обогащаем локальную карту 64x36, чтобы рамки в любой точке экрана светились оттенком фона под ними
+    for (int y = 0; y < h; ++y) {
+        QRgb *line = reinterpret_cast<QRgb *>(cmap.scanLine(y));
+        for (int x = 0; x < w; ++x) {
+            QColor c(qRed(line[x]), qGreen(line[x]), qBlue(line[x]));
+            float hf = 0.0f, sf = 0.0f, lf = 0.0f;
+            c.getHslF(&hf, &sf, &lf);
+
+            if (lf < 0.12f || sf < 0.10f || hf < 0.0f) {
+                // На тёмных участках космоса плавно подмешиваем доминирующий тон плазмы текущего кадра
+                double mix = double(x) / std::max(1, w - 1);
+                int mr = int(outPrimary.red() * (1.0 - mix) + outSecondary.red() * mix);
+                int mg = int(outPrimary.green() * (1.0 - mix) + outSecondary.green() * mix);
+                int mb = int(outPrimary.blue() * (1.0 - mix) + outSecondary.blue() * mix);
+                line[x] = qRgb((c.red() + mr * 2) / 3, (c.green() + mg * 2) / 3, (c.blue() + mb * 2) / 3);
+            } else {
+                sf = std::clamp(sf * 1.38f + 0.22f, 0.50f, 0.96f);
+                lf = std::clamp(0.54f + lf * 0.34f, 0.60f, 0.84f);
+                QColor vc = QColor::fromHslF(hf, sf, lf);
+                line[x] = qRgb(vc.red(), vc.green(), vc.blue());
+            }
+        }
+    }
+    outMap = cmap;
+}
+
+QColor Ton618GlWidget::sampleAdaptiveColor(const QWidget *caller, const QPointF &localPos) const {
+    if (m_colorMap.isNull() || width() <= 1 || height() <= 1) {
+        return m_ambientPrimary;
+    }
+    QPoint pt = caller ? caller->mapTo(const_cast<Ton618GlWidget *>(this), localPos.toPoint())
+                       : localPos.toPoint();
+    int cx = std::clamp(pt.x() * m_colorMap.width() / std::max(1, width()), 0, m_colorMap.width() - 1);
+    int cy = std::clamp(pt.y() * m_colorMap.height() / std::max(1, height()), 0, m_colorMap.height() - 1);
+    return m_colorMap.pixelColor(cx, cy);
 }
 
 Ton618GlWidget::Ton618GlWidget(QWidget *parent) : QWidget(parent) {
@@ -129,7 +206,7 @@ void Ton618GlWidget::decoderLoop() {
 
     std::vector<uchar> buf(FRAME_BYTES);
     auto nextTick = std::chrono::steady_clock::now();
-    constexpr auto frameInterval = std::chrono::microseconds(33333); // Точные 30.0 FPS
+    constexpr auto frameInterval = std::chrono::microseconds(33333);
 
     while (!m_stopWorker) {
         if (m_paused) {
@@ -152,21 +229,26 @@ void Ton618GlWidget::decoderLoop() {
         if (!m_frameQueued.load()) {
             QImage rawFrame(buf.data(), STREAM_W, STREAM_H, STREAM_W * 4, QImage::Format_RGB32);
 
-            // 1. Масштабируем чёткий кадр заднего фона прямо в фоновом потоке
             QImage sharpScaled = rawFrame.scaled(tw, th, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
             int offX = std::max(0, (sharpScaled.width() - tw) / 2);
             int offY = std::max(0, (sharpScaled.height() - th) / 2);
             QImage sharpFinal = sharpScaled.copy(offX, offY, tw, th);
 
-            // 2. Строим кристально-полупрозрачную карту преломления Liquid Glass (умеренное размытие, чтобы сквозь карточки читалось движение плазмы!)
             QImage small = sharpFinal.scaled(240, 135, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
             QImage blurredSmall = buildCrystalFrostedImage(small, 4);
             QImage frostedFinal = blurredSmall.scaled(tw, th, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 
+            QImage cmap;
+            QColor amb1, amb2;
+            buildAdaptiveColorMap(blurredSmall, cmap, amb1, amb2);
+
             m_frameQueued = true;
-            QMetaObject::invokeMethod(this, [this, sharpFinal, frostedFinal]() {
+            QMetaObject::invokeMethod(this, [this, sharpFinal, frostedFinal, cmap, amb1, amb2]() {
                 m_scaledSharp = QPixmap::fromImage(sharpFinal);
                 m_scaledFrosted = QPixmap::fromImage(frostedFinal);
+                m_colorMap = cmap;
+                m_ambientPrimary = amb1;
+                m_ambientSecondary = amb2;
                 m_frameQueued = false;
                 if (isVisible() && !window()->isMinimized()) {
                     update();
@@ -267,6 +349,7 @@ void Ton618GlWidget::updateStaticCaches() {
     QImage small = cropped.scaled(240, 135, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     QImage blurredSmall = buildCrystalFrostedImage(small, 4);
     m_scaledFrosted = QPixmap::fromImage(blurredSmall.scaled(size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
+    buildAdaptiveColorMap(blurredSmall, m_colorMap, m_ambientPrimary, m_ambientSecondary);
 }
 
 void Ton618GlWidget::resizeEvent(QResizeEvent *e) {
@@ -287,7 +370,6 @@ void Ton618GlWidget::paintEvent(QPaintEvent *) {
     clip.addRoundedRect(1.0, 1.0, w - 2.0, h - 2.0, 20.0, 20.0);
     p.setClipPath(clip);
 
-    // 100% НЕПРОЗРАЧНЫЙ И ЯРКИЙ ЗАДНИЙ ФОН ВИДЕО (без тёмной пелены!)
     if (!m_scaledSharp.isNull()) {
         if (m_scaledSharp.size() == size()) {
             p.drawPixmap(0, 0, m_scaledSharp);
@@ -298,7 +380,15 @@ void Ton618GlWidget::paintEvent(QPaintEvent *) {
         p.fillRect(rect(), QColor(3, 4, 9));
     }
 
-    p.setPen(QPen(QColor(255, 255, 255, 145), 1.5));
+    // Внешняя тонкая рамка самого окна тоже плавно переливается цветами заднего фона!
+    QLinearGradient winRim(0, 0, w, h);
+    QColor c1 = m_ambientPrimary, c2 = m_ambientSecondary;
+    c1.setAlpha(125);
+    c2.setAlpha(115);
+    winRim.setColorAt(0.0, QColor(255, 255, 255, 135));
+    winRim.setColorAt(0.5, c1);
+    winRim.setColorAt(1.0, c2);
+    p.setPen(QPen(QBrush(winRim), 1.2));
     p.setBrush(Qt::NoBrush);
     p.drawRoundedRect(1, 1, w - 2, h - 2, 20, 20);
 }

@@ -1,3 +1,4 @@
+#include <QScrollBar>
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
 #include "ui/MainWindow.hpp"
@@ -23,17 +24,43 @@
 
 namespace mqblox {
 
+class LockedScrollArea : public QScrollArea {
+public:
+    explicit LockedScrollArea(QWidget *parent = nullptr) : QScrollArea(parent) {
+        setWidgetResizable(true);
+        setFrameShape(QFrame::NoFrame);
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        viewport()->setStyleSheet("background: transparent;");
+    }
+protected:
+    void resizeEvent(QResizeEvent *e) override {
+        QScrollArea::resizeEvent(e);
+        if (widget()) {
+            widget()->setMinimumWidth(0);
+            widget()->setMaximumWidth(viewport()->width());
+        }
+        if (horizontalScrollBar()) {
+            horizontalScrollBar()->setRange(0, 0);
+            horizontalScrollBar()->setValue(0);
+        }
+    }
+    void scrollContentsBy(int, int dy) override {
+        if (horizontalScrollBar() && horizontalScrollBar()->value() != 0) {
+            horizontalScrollBar()->setValue(0);
+        }
+        QScrollArea::scrollContentsBy(0, dy);
+    }
+};
+
 static QScrollArea *wrapScrollable(QWidget *w) {
-    auto *s = new QScrollArea();
-    s->setWidgetResizable(true);
-    s->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto *s = new LockedScrollArea();
     w->setObjectName("ScrollContents");
+    w->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     if (w->layout()) {
-        w->layout()->setContentsMargins(6, 4, 14, 12);
+        w->layout()->setContentsMargins(10, 6, 14, 14);
         w->layout()->setSpacing(12);
     }
     s->setWidget(w);
-    s->viewport()->setStyleSheet("background: transparent;");
     return s;
 }
 
@@ -43,7 +70,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_soberCtrl = new SoberController(&m_settingsMgr, this);
     m_apiClient = new RobloxApiClient(this);
 
-    setWindowTitle(tr("MqBlox v28.0 [HyperOS 4 Liquid Glass]"));
+    setWindowTitle(tr("MqBlox v30.0 [HyperOS 4 Liquid Glass]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
     if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -226,7 +253,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox v28.0 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox v30.0 — HyperOS 4 Liquid Glass"));
 
         auto *menu = new QMenu(nullptr);
         menu->setStyleSheet(
@@ -357,7 +384,7 @@ void MainWindow::initUi() {
 
     auto *topBar = new QHBoxLayout();
     topBar->setSpacing(8);
-    auto *topHint = new QLabel(tr("MqBlox v28.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
+    auto *topHint = new QLabel(tr("MqBlox v30.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
     topHint->setObjectName("SubText");
     topBar->addWidget(topHint);
 
@@ -593,6 +620,8 @@ QWidget *MainWindow::buildHardwareAudioPage() {
     auto *hw = new QGridLayout(cardHw);
     hw->setContentsMargins(18, 16, 18, 16);
     hw->setSpacing(12);
+    hw->setColumnStretch(0, 0);
+    hw->setColumnStretch(1, 1);
 
     auto *thw = new QLabel(tr("🖥️ Аппаратная поддержка Видеокарт (AMD / NVIDIA) и Процессоров (Intel / AMD)"));
     thw->setObjectName("SectionTitle");
@@ -762,6 +791,8 @@ QWidget *MainWindow::buildGraphicsPage() {
     auto *g1 = new QGridLayout(cardApi);
     g1->setContentsMargins(18, 16, 18, 16);
     g1->setSpacing(10);
+    g1->setColumnStretch(0, 0);
+    g1->setColumnStretch(1, 1);
 
     g1->addWidget(new QLabel(tr("Графический API:")), 0, 0);
     m_comboApi = new DarkComboBox();
@@ -885,6 +916,8 @@ QWidget *MainWindow::buildCameraModsPage() {
     auto *cc = new QGridLayout(cardCam);
     cc->setContentsMargins(18, 16, 18, 16);
     cc->setSpacing(10);
+    cc->setColumnStretch(0, 0);
+    cc->setColumnStretch(1, 1);
 
     auto *tCam = new QLabel(tr("🌌 Студия Камеры, Сетевого Пинга и Игрового HUD"));
     tCam->setObjectName("SectionTitle");
@@ -1024,11 +1057,11 @@ QWidget *MainWindow::buildUpdatesPage() {
 
 void MainWindow::refreshGitUpdateStatus() {
     if (!m_lblGitVersionInfo || !m_updateLogView) return;
-    m_lblGitVersionInfo->setText(tr("🟢 <b>Установлена актуальная версия MqBlox v28.0 [HyperOS 4 Liquid Glass]</b>"));
+    m_lblGitVersionInfo->setText(tr("🟢 <b>Установлена актуальная версия MqBlox v30.0 [HyperOS 4 Liquid Glass]</b>"));
     m_updateLogView->setPlainText(
-        "✦ [v28.0] Устранены лаги CPU от фонового видео: Ultra-HD кэш Pexels #39811262\n"
-        "✦ [v28.0] Исправлены отступы карточек (18x16 px) и швы внутри списков выбора\n"
-        "✦ [v28.0] Передана нативная работа с микрофоном напрямую в Sober (Esc -> Settings)"
+        "✦ [v30.0] Устранены лаги CPU от фонового видео: Ultra-HD кэш Pexels #39811262\n"
+        "✦ [v30.0] Исправлены отступы карточек (18x16 px) и швы внутри списков выбора\n"
+        "✦ [v30.0] Передана нативная работа с микрофоном напрямую в Sober (Esc -> Settings)"
     );
 }
 
@@ -1056,6 +1089,7 @@ void MainWindow::syncUiFromSettings() {
     m_chkReturnMq->setChecked(s.returnToMqBloxOnLeave);
     m_chkPauseWeb->setChecked(s.pauseWebInGame);
     m_chkAnimBg->setChecked(s.animBg);
+    if (m_rootCosmos) m_rootCosmos->setAnimationEnabled(s.animBg);
     m_chkCloseToTray->setChecked(s.closeToTray);
     m_chkGlThread->setChecked(s.glThread);
     m_chkAsyncShaders->setChecked(s.asyncShaders);
@@ -1113,6 +1147,7 @@ void MainWindow::collectSettingsFromUi() {
     s.returnToMqBloxOnLeave = m_chkReturnMq->isChecked();
     s.pauseWebInGame = m_chkPauseWeb->isChecked();
     s.animBg = m_chkAnimBg->isChecked();
+    if (m_rootCosmos) m_rootCosmos->setAnimationEnabled(s.animBg);
     s.closeToTray = m_chkCloseToTray->isChecked();
     s.glThread = m_chkGlThread->isChecked();
     s.asyncShaders = m_chkAsyncShaders->isChecked();

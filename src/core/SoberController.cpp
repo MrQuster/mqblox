@@ -127,6 +127,9 @@ QStringList SoberController::buildFlatpakArgs(const QString &targetUri) const {
         args << "--env=MESA_SHADER_CACHE_MAX_SIZE=4G";
     }
 
+    if (s.showHudFps) {
+        args << "--env=GALLIUM_HUD=fps" << "--env=MANGOHUD=1";
+    }
     if (s.vsyncOff || s.unlimitedFps) {
         args << "--env=vblank_mode=0"
              << "--env=__GL_SYNC_TO_VBLANK=0"

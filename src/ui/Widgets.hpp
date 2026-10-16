@@ -52,8 +52,20 @@ inline Ton618GlWidget *findBackdropTon618(const QWidget *w) {
     return top ? top->findChild<Ton618GlWidget *>() : nullptr;
 }
 
-// КРИСТАЛЬНО-ПОЛУПРОЗРАЧНЫЙ ШЕЙДЕР HYPEROS 4 LIQUID GLASS:
-// Сквозь все элементы отчётливо просвечивает преломлённое видео чёрной дыры, а сам текст остаётся контрастным!
+inline QColor blendColors(const QColor &a, const QColor &b, double t, int alpha = 255) {
+    t = std::clamp(t, 0.0, 1.0);
+    return QColor(
+        int(a.red() * (1.0 - t) + b.red() * t),
+        int(a.green() * (1.0 - t) + b.green() * t),
+        int(a.blue() * (1.0 - t) + b.blue() * t),
+        std::clamp(alpha, 0, 255)
+    );
+}
+
+// УЛЬТРА-ПРОЗРАЧНЫЙ АДАПТИВНЫЙ ШЕЙДЕР HYPEROS 4 CHAMELEON LIQUID GLASS:
+// 1) Считывает реальный цвет видео-фона в 3 точках под виджетом (cTL, cMid, cBR)
+// 2) Отрисовывает кристально-прозрачное тело линзы (видна и чёткая плазма, и мягкое свечение)
+// 3) Отрисовывает тонкую (1.0px) полупрозрачную рамку, полностью подстраивающуюся под цвета фона позади неё
 inline void drawHyperOs4LiquidGlass(QPainter &p,
                                     const QWidget *widget,
                                     const QRectF &rect,
@@ -61,9 +73,22 @@ inline void drawHyperOs4LiquidGlass(QPainter &p,
                                     double hoverMix,
                                     const QPointF &cursorPos,
                                     bool hasCursor,
-                                    const QColor &tintColor = QColor(56, 189, 248),
-                                    double glassOpacity = 0.11) {
+                                    const QColor &customAccent = QColor(),
+                                    double glassOpacity = 0.04) {
     if (rect.width() <= 4 || rect.height() <= 4) return;
+
+    Ton618GlWidget *bg = findBackdropTon618(widget);
+
+    // 1. Динамический захват 3 цветов фона прямо под углами и центром этого элемента
+    QColor cTL = bg ? bg->sampleAdaptiveColor(widget, rect.topLeft()) : QColor(251, 191, 36);
+    QColor cMid = bg ? bg->sampleAdaptiveColor(widget, rect.center()) : QColor(56, 189, 248);
+    QColor cBR = bg ? bg->sampleAdaptiveColor(widget, rect.bottomRight()) : QColor(168, 85, 247);
+
+    if (customAccent.isValid() && hoverMix > 0.05) {
+        cTL = blendColors(cTL, customAccent, 0.35 * hoverMix);
+        cMid = blendColors(cMid, customAccent, 0.45 * hoverMix);
+        cBR = blendColors(cBR, customAccent, 0.35 * hoverMix);
+    }
 
     QPainterPath clipPath;
     clipPath.addRoundedRect(rect, radius, radius);
@@ -71,78 +96,77 @@ inline void drawHyperOs4LiquidGlass(QPainter &p,
     p.save();
     p.setClipPath(clipPath);
 
-    // 1. Прямое преломление живого видео-фона (1:1 блит с оптическим сдвигом линзы — 0.01 мс!)
-    if (Ton618GlWidget *bg = findBackdropTon618(widget)) {
+    // 2. Ультра-прозрачное оптическое преломление (0.34 прозрачности матового слоя, чтобы сквозь карточку просвечивало живое видео!)
+    if (bg) {
         const QPixmap &frosted = bg->frostedBackdrop();
         if (!frosted.isNull()) {
             QPoint posInBg = widget->mapTo(bg, rect.topLeft().toPoint());
-            int shiftX = hasCursor ? int((cursorPos.x() - rect.center().x()) * 0.04) : 0;
-            int shiftY = hasCursor ? int((cursorPos.y() - rect.center().y()) * 0.04) : 4;
+            int shiftX = hasCursor ? int((cursorPos.x() - rect.center().x()) * 0.045) : 0;
+            int shiftY = hasCursor ? int((cursorPos.y() - rect.center().y()) * 0.045) : 3;
             QRect srcRect(posInBg.x() + shiftX, posInBg.y() + shiftY,
                           int(rect.width()), int(rect.height()));
             srcRect = srcRect.intersected(frosted.rect());
             if (srcRect.isValid()) {
-                p.setOpacity(0.82); // Сквозь матовое стекло просвечивает и резкий слой видео под ним!
+                p.setOpacity(0.34 + 0.12 * hoverMix);
                 p.drawPixmap(rect.topLeft(), frosted, srcRect);
                 p.setOpacity(1.0);
             }
         }
     }
 
-    // 2. Ультра-тонкая кристальная вуаль HyperOS 4 (всего 10–15% затемнения для читаемости текста)
-    QLinearGradient crystal(rect.topLeft(), rect.bottomRight());
-    int aTop = std::clamp(int((glassOpacity + 0.04 * hoverMix) * 255), 18, 120);
-    int aBot = std::clamp(int((glassOpacity + 0.06 + 0.04 * hoverMix) * 255), 24, 135);
-    crystal.setColorAt(0.0, QColor(16, 24, 46, aTop));
-    crystal.setColorAt(0.5, QColor(8, 12, 26, int((aTop + aBot) * 0.45)));
-    crystal.setColorAt(1.0, QColor(12, 18, 36, aBot));
-    p.fillRect(rect, crystal);
+    // 3. Невесомая стеклянная вуаль, окрашенная в цвет фона под элементом (прозрачность 92–96%!)
+    QLinearGradient tintVeil(rect.topLeft(), rect.bottomRight());
+    int aBase = std::clamp(int((glassOpacity + 0.04 * hoverMix) * 255), 8, 55);
+    tintVeil.setColorAt(0.0, QColor(cTL.red() / 4, cTL.green() / 4, cTL.blue() / 4, aBase));
+    tintVeil.setColorAt(0.5, QColor(cMid.red() / 5, cMid.green() / 5, cMid.blue() / 5, int(aBase * 0.85)));
+    tintVeil.setColorAt(1.0, QColor(cBR.red() / 4, cBR.green() / 4, cBR.blue() / 4, aBase + 6));
+    p.fillRect(rect, tintVeil);
 
-    // 3. Радужная дисперсия цвета внутри жидкого стекла при наведении
-    if (hoverMix > 0.01) {
-        QLinearGradient disp(rect.topLeft(), rect.bottomRight());
-        disp.setColorAt(0.0, QColor(tintColor.red(), tintColor.green(), tintColor.blue(), int(58 * hoverMix)));
-        disp.setColorAt(0.5, QColor(56, 189, 248, int(28 * hoverMix)));
-        disp.setColorAt(1.0, QColor(251, 191, 36, int(45 * hoverMix)));
-        p.fillRect(rect, disp);
-    }
+    // 4. Адаптивное свечение цвета фона внутри стекла
+    QLinearGradient ambientGlow(rect.topLeft(), rect.bottomRight());
+    int glowAlpha = int(14 + 38 * hoverMix);
+    ambientGlow.setColorAt(0.0, QColor(cTL.red(), cTL.green(), cTL.blue(), glowAlpha));
+    ambientGlow.setColorAt(0.5, QColor(cMid.red(), cMid.green(), cMid.blue(), int(glowAlpha * 0.65)));
+    ambientGlow.setColorAt(1.0, QColor(cBR.red(), cBR.green(), cBR.blue(), glowAlpha));
+    p.fillRect(rect, ambientGlow);
 
-    // 4. Живой каустический блик под курсором мыши
+    // 5. Каустический блик под курсором мыши, окрашенный в локальный цвет фона
     if (hasCursor) {
-        double spotR = std::max(rect.width(), rect.height()) * 0.72;
+        QColor cCursor = bg ? bg->sampleAdaptiveColor(widget, cursorPos) : cMid;
+        double spotR = std::max(rect.width(), rect.height()) * 0.68;
         QRadialGradient spot(cursorPos, spotR);
-        spot.setColorAt(0.0, QColor(255, 255, 255, int(75 + 45 * hoverMix)));
-        spot.setColorAt(0.35, QColor(186, 230, 253, int(34 + 26 * hoverMix)));
+        spot.setColorAt(0.0, blendColors(cCursor, QColor(255, 255, 255), 0.55, int(52 + 38 * hoverMix)));
+        spot.setColorAt(0.4, QColor(cCursor.red(), cCursor.green(), cCursor.blue(), int(22 + 20 * hoverMix)));
         spot.setColorAt(1.0, QColor(255, 255, 255, 0));
         p.fillRect(rect, spot);
     }
 
-    // 5. Верхний зеркальный блик купола капли (HyperOS 4 Specular Sheen)
-    QLinearGradient crown(0, rect.top(), 0, rect.top() + rect.height() * 0.44);
-    crown.setColorAt(0.0, QColor(255, 255, 255, int(88 + 52 * hoverMix)));
-    crown.setColorAt(0.35, QColor(255, 255, 255, int(24 + 18 * hoverMix)));
+    // 6. Тончайший верхний блик купола капли (HyperOS Specular Sheen)
+    QLinearGradient crown(0, rect.top(), 0, rect.top() + rect.height() * 0.38);
+    crown.setColorAt(0.0, blendColors(cTL, QColor(255, 255, 255), 0.65, int(34 + 32 * hoverMix)));
+    crown.setColorAt(0.4, blendColors(cMid, QColor(255, 255, 255), 0.50, int(10 + 10 * hoverMix)));
     crown.setColorAt(1.0, QColor(255, 255, 255, 0));
-    p.fillRect(QRectF(rect.left(), rect.top(), rect.width(), rect.height() * 0.44), crown);
+    p.fillRect(QRectF(rect.left(), rect.top(), rect.width(), rect.height() * 0.38), crown);
 
     p.restore();
 
-    // 6. Объёмная внутренняя преломляющая кромка линзы (HyperOS 4 Refractive Lip)
-    QRectF innerLip = rect.adjusted(2.0, 2.0, -2.0, -2.0);
+    // 7. Внутренняя микро-кромка преломления света (0.75px, ультра-прозрачная!)
+    QRectF innerLip = rect.adjusted(1.1, 1.1, -1.1, -1.1);
     QLinearGradient lipGrad(innerLip.topLeft(), innerLip.bottomRight());
-    lipGrad.setColorAt(0.0, QColor(255, 255, 255, int(82 + 55 * hoverMix)));
-    lipGrad.setColorAt(0.5, QColor(125, 211, 252, int(32 + 42 * hoverMix)));
-    lipGrad.setColorAt(1.0, QColor(251, 191, 36, int(45 + 62 * hoverMix)));
-    p.setPen(QPen(QBrush(lipGrad), 2.2));
+    lipGrad.setColorAt(0.0, blendColors(cTL, QColor(255, 255, 255), 0.5, int(22 + 34 * hoverMix)));
+    lipGrad.setColorAt(0.5, QColor(cMid.red(), cMid.green(), cMid.blue(), int(12 + 22 * hoverMix)));
+    lipGrad.setColorAt(1.0, QColor(cBR.red(), cBR.green(), cBR.blue(), int(18 + 30 * hoverMix)));
+    p.setPen(QPen(QBrush(lipGrad), 0.75));
     p.setBrush(Qt::NoBrush);
-    p.drawRoundedRect(innerLip, std::max(1.0, radius - 2.0), std::max(1.0, radius - 2.0));
+    p.drawRoundedRect(innerLip, std::max(1.0, radius - 1.1), std::max(1.0, radius - 1.1));
 
-    // 7. Внешний бриллиантовый кант стекла (HyperOS 4 Specular Rim)
+    // 8. Внешняя тонкая полупрозрачная рамка-хамелеон (1.0px, полностью подстраивается под фон!)
     QLinearGradient rimGrad(rect.topLeft(), rect.bottomRight());
-    rimGrad.setColorAt(0.0, QColor(255, 255, 255, int(220 + 35 * hoverMix)));
-    rimGrad.setColorAt(0.35, QColor(255, 255, 255, int(85 + 75 * hoverMix)));
-    rimGrad.setColorAt(0.70, QColor(56, 189, 248, int(75 + 105 * hoverMix)));
-    rimGrad.setColorAt(1.0, QColor(tintColor.red(), tintColor.green(), tintColor.blue(), int(105 + 120 * hoverMix)));
-    p.setPen(QPen(QBrush(rimGrad), 1.4 + 0.35 * hoverMix));
+    rimGrad.setColorAt(0.0, blendColors(cTL, QColor(255, 255, 255), 0.42, int(72 + 68 * hoverMix)));
+    rimGrad.setColorAt(0.35, QColor(cTL.red(), cTL.green(), cTL.blue(), int(42 + 52 * hoverMix)));
+    rimGrad.setColorAt(0.68, QColor(cMid.red(), cMid.green(), cMid.blue(), int(38 + 56 * hoverMix)));
+    rimGrad.setColorAt(1.0, blendColors(cBR, QColor(255, 255, 255), 0.25, int(64 + 72 * hoverMix)));
+    p.setPen(QPen(QBrush(rimGrad), 1.0 + 0.25 * hoverMix));
     p.drawRoundedRect(rect, radius, radius);
 }
 
@@ -159,7 +183,7 @@ public:
 
     explicit AnimButton(const QString &text,
                         QWidget *parent = nullptr,
-                        QColor acc = QColor(56, 189, 248),
+                        QColor acc = QColor(),
                         bool play = false,
                         bool danger = false)
         : QPushButton(text, parent), accent(acc), isPlay(play), isDanger(danger) {
@@ -226,19 +250,19 @@ protected:
         p.scale(sc, sc);
         p.translate(-w * 0.5, -h * 0.5);
 
-        QRectF r(2.0, 2.0, w - 4.0, h - 4.0);
+        QRectF r(1.5, 1.5, w - 3.0, h - 3.0);
         double rad = std::min(r.height() * 0.47, 13.0);
 
         if (isPlay) {
-            drawHyperOs4LiquidGlass(p, this, r, rad, 0.68 + 0.32 * hp, mousePos, hasMouse, QColor(16, 185, 129), 0.16);
+            drawHyperOs4LiquidGlass(p, this, r, rad, 0.55 + 0.45 * hp, mousePos, hasMouse, QColor(52, 211, 153), 0.07);
         } else if (isDanger) {
-            drawHyperOs4LiquidGlass(p, this, r, rad, 0.58 + 0.42 * hp, mousePos, hasMouse, QColor(239, 68, 68), 0.16);
+            drawHyperOs4LiquidGlass(p, this, r, rad, 0.45 + 0.55 * hp, mousePos, hasMouse, QColor(248, 113, 113), 0.07);
         } else {
-            drawHyperOs4LiquidGlass(p, this, r, rad, hp, mousePos, hasMouse, accent, 0.10);
+            drawHyperOs4LiquidGlass(p, this, r, rad, hp, mousePos, hasMouse, accent, 0.04);
         }
 
         p.setPen(QColor(255, 255, 255));
-        QFont f = font(); f.setBold(true); p.setFont(f);
+        QFont f = font(); f.setStyle(QFont::StyleNormal); f.setItalic(false); f.setBold(true); p.setFont(f);
         p.drawText(r, Qt::AlignCenter, text());
         p.restore();
     }
@@ -322,16 +346,17 @@ protected:
         p.scale(sc, sc);
         p.translate(-w * 0.5, -h * 0.5);
 
-        QRectF r(2.0, 2.0, w - 4.0, h - 4.0);
-        drawHyperOs4LiquidGlass(p, this, r, 13.5, mix, mousePos, hasMouse,
-                                ap > 0.2 ? QColor(251, 191, 36) : QColor(56, 189, 248),
-                                0.08 + 0.08 * ap);
+        QRectF r(1.5, 1.5, w - 3.0, h - 3.0);
+        drawHyperOs4LiquidGlass(p, this, r, 13.5, mix, mousePos, hasMouse, QColor(), 0.03 + 0.05 * ap);
 
         if (mix > 0.04) {
+            Ton618GlWidget *bg = findBackdropTon618(this);
+            QColor pillCol = bg ? bg->sampleAdaptiveColor(this, QPointF(8.0, h * 0.5)).lighter(125) : QColor(255, 255, 255);
+            pillCol.setAlpha(int(245 * mix));
             double pillH = (h - 18.0) * mix;
             p.setPen(Qt::NoPen);
-            p.setBrush(QColor(255, 255, 255, int(250 * mix)));
-            p.drawRoundedRect(QRectF(6.5, (h - pillH) * 0.5, 3.8, pillH), 1.9, 1.9);
+            p.setBrush(pillCol);
+            p.drawRoundedRect(QRectF(6.5, (h - pillH) * 0.5, 3.6, pillH), 1.8, 1.8);
         }
 
         QFont f = font();
@@ -361,6 +386,9 @@ public:
     explicit DarkComboBox(QWidget *parent = nullptr) : QComboBox(parent) {
         setMinimumHeight(36);
         setMouseTracking(true);
+        setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        setMinimumContentsLength(6);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         auto *lv = new QListView(this);
         lv->setObjectName("ComboPopupList");
         setView(lv);
@@ -382,10 +410,12 @@ public:
         if (view() && view()->window()) {
             QWidget *popWin = view()->window();
             popWin->setAttribute(Qt::WA_TranslucentBackground);
-            popWin->setStyleSheet(
-                "background-color: rgba(12, 18, 36, 175); "
-                "border: 1.5px solid rgba(255, 255, 255, 185); "
-                "border-radius: 14px;");
+            Ton618GlWidget *bg = findBackdropTon618(this);
+            QColor rimC = bg ? bg->sampleAdaptiveColor(this, rect().center()) : QColor(255, 255, 255);
+            popWin->setStyleSheet(QString(
+                "background-color: rgba(8, 12, 24, 155); "
+                "border: 1px solid rgba(%1, %2, %3, 130); "
+                "border-radius: 14px;").arg(rimC.red()).arg(rimC.green()).arg(rimC.blue()));
             auto *fade = new QPropertyAnimation(popWin, "windowOpacity", popWin);
             fade->setDuration(160);
             fade->setStartValue(0.0);
@@ -434,17 +464,21 @@ protected:
         p.scale(sc, sc);
         p.translate(-w * 0.5, -h * 0.5);
 
-        QRectF r(2.0, 2.0, w - 4.0, h - 4.0);
-        drawHyperOs4LiquidGlass(p, this, r, 12.0, hp, mousePos, hasMouse, QColor(56, 189, 248), 0.11);
+        QRectF r(1.5, 1.5, w - 3.0, h - 3.0);
+        drawHyperOs4LiquidGlass(p, this, r, 12.0, hp, mousePos, hasMouse, QColor(), 0.04);
 
         p.setPen(QColor(255, 255, 255));
-        QFont f = font(); f.setBold(true); p.setFont(f);
-        p.drawText(QRectF(14.0, 0, w - 46.0, h), Qt::AlignVCenter | Qt::AlignLeft, currentText());
+        QFont f = font(); f.setStyle(QFont::StyleNormal); f.setItalic(false); f.setBold(true); p.setFont(f);
+        QString elided = p.fontMetrics().elidedText(currentText(), Qt::ElideRight, std::max(20, int(w - 50.0)));
+        p.drawText(QRectF(14.0, 0, w - 46.0, h), Qt::AlignVCenter | Qt::AlignLeft, elided);
+
+        Ton618GlWidget *bg = findBackdropTon618(this);
+        QColor badgeCol = bg ? bg->sampleAdaptiveColor(this, QPointF(w - 19.5, h * 0.5)) : QColor(255, 255, 255);
 
         double badgeR = 10.5;
         QPointF badgeCenter(w - 19.5, h * 0.5);
-        p.setPen(QPen(QColor(255, 255, 255, int(110 + 95 * hp)), 1.1));
-        p.setBrush(QColor(255, 255, 255, int(38 + 45 * hp)));
+        p.setPen(QPen(QColor(badgeCol.red(), badgeCol.green(), badgeCol.blue(), int(85 + 85 * hp)), 0.9));
+        p.setBrush(QColor(badgeCol.red(), badgeCol.green(), badgeCol.blue(), int(22 + 35 * hp)));
         p.drawEllipse(badgeCenter, badgeR, badgeR);
 
         QPainterPath chev;
@@ -452,7 +486,7 @@ protected:
         chev.moveTo(cx - 3.0, cy - 1.2); chev.lineTo(cx, cy - 4.0); chev.lineTo(cx + 3.0, cy - 1.2);
         chev.moveTo(cx - 3.0, cy + 1.2); chev.lineTo(cx, cy + 4.0); chev.lineTo(cx + 3.0, cy + 1.2);
 
-        p.setPen(QPen(QColor(255, 255, 255, 250), 1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.setPen(QPen(QColor(255, 255, 255, 240), 1.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         p.setBrush(Qt::NoBrush);
         p.drawPath(chev);
         p.restore();
@@ -538,6 +572,7 @@ public:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override {
+        // 1. Все стеклянные карточки и панели (Ультра-прозрачные + адаптивная рамка)
         QFrame *frame = nullptr;
         if (isGlassContainer(watched, &frame)) {
             if (event->type() == QEvent::Show || event->type() == QEvent::Polish) {
@@ -561,22 +596,42 @@ protected:
                 p.setRenderHint(QPainter::Antialiasing);
                 auto &st = surfaces[frame];
                 const QString name = frame->objectName();
-                QRectF r(1.5, 1.5, frame->width() - 3.0, frame->height() - 3.0);
+                QRectF r(1.0, 1.0, frame->width() - 2.0, frame->height() - 2.0);
 
-                QColor tint(56, 189, 248);
-                double baseOpacity = 0.10; // Кристально-полупрозрачные карточки HyperOS 4!
-                double rad = 19.0;
-                if (name == "Sidebar") { baseOpacity = 0.12; tint = QColor(168, 85, 247); }
-                else if (name == "WarningBanner") { baseOpacity = 0.16; tint = QColor(245, 158, 11); rad = 14.0; }
-                else if (name == "AuthorsBox") { baseOpacity = 0.12; tint = QColor(251, 191, 36); rad = 14.0; }
+                double baseOpacity = 0.04;
+                double rad = 18.0;
+                if (name == "Sidebar") { baseOpacity = 0.05; }
+                else if (name == "WarningBanner" || name == "AuthorsBox") { baseOpacity = 0.05; rad = 14.0; }
 
                 drawHyperOs4LiquidGlass(p, frame, r, rad, std::clamp(st.hover.value, 0.0, 1.0),
-                                        st.cursor, st.hasCursor, tint, baseOpacity);
+                                        st.cursor, st.hasCursor, QColor(), baseOpacity);
                 return true;
             }
             return QObject::eventFilter(watched, event);
         }
 
+        // 2. Заголовки секций (SectionTitle) автоматически окрашиваются в градиент фона под ними!
+        if (auto *secLbl = qobject_cast<QLabel *>(watched)) {
+            if (secLbl->objectName() == "SectionTitle" && event->type() == QEvent::Paint) {
+                QPainter p(secLbl);
+                p.setRenderHint(QPainter::Antialiasing);
+                Ton618GlWidget *bg = findBackdropTon618(secLbl);
+                QColor c1 = bg ? bg->sampleAdaptiveColor(secLbl, QPointF(0, 0)).lighter(135) : QColor(253, 224, 71);
+                QColor c2 = bg ? bg->sampleAdaptiveColor(secLbl, QPointF(secLbl->width(), 0)).lighter(135) : QColor(125, 211, 252);
+                QLinearGradient tg(0, 0, secLbl->width(), 0);
+                tg.setColorAt(0.0, blendColors(c1, QColor(255, 255, 255), 0.35));
+                tg.setColorAt(1.0, blendColors(c2, QColor(255, 255, 255), 0.35));
+                QFont f = secLbl->font();
+                f.setPixelSize(15);
+                f.setBold(true);
+                p.setFont(f);
+                p.setPen(QPen(QBrush(tg), 1.0));
+                p.drawText(secLbl->rect(), Qt::AlignVCenter | Qt::AlignLeft, secLbl->text());
+                return true;
+            }
+        }
+
+        // 3. Поля ввода и счётчики
         if (qobject_cast<QLineEdit *>(watched) || qobject_cast<QSpinBox *>(watched)) {
             auto *w = static_cast<QWidget *>(watched);
             if (event->type() == QEvent::Show || event->type() == QEvent::Polish) {
@@ -596,51 +651,55 @@ protected:
                 p.setRenderHint(QPainter::Antialiasing);
                 auto &st = surfaces[w];
                 double mix = w->hasFocus() ? 1.0 : std::clamp(st.hover.value, 0.0, 1.0);
-                QRectF r(1.5, 1.5, w->width() - 3.0, w->height() - 3.0);
-                drawHyperOs4LiquidGlass(p, w, r, 11.5, mix, st.cursor, st.hasCursor,
-                                        w->hasFocus() ? QColor(56, 189, 248) : QColor(255, 255, 255), 0.11);
+                QRectF r(1.0, 1.0, w->width() - 2.0, w->height() - 2.0);
+                drawHyperOs4LiquidGlass(p, w, r, 11.5, mix, st.cursor, st.hasCursor, QColor(), 0.04);
                 return false;
             }
             return QObject::eventFilter(watched, event);
         }
 
+        // 4. Капсульные бейджи
         QLabel *badgeLbl = nullptr;
         if (isGlassBadgeLabel(watched, &badgeLbl)) {
             if (event->type() == QEvent::Paint) {
                 QPainter p(badgeLbl);
                 p.setRenderHint(QPainter::Antialiasing);
-                QRectF r(1.2, 1.2, badgeLbl->width() - 2.4, badgeLbl->height() - 2.4);
-                const QString name = badgeLbl->objectName();
-                QColor tint = (name == "RobuxCardBadge") ? QColor(16, 185, 129) : QColor(251, 191, 36);
+                QRectF r(1.0, 1.0, badgeLbl->width() - 2.0, badgeLbl->height() - 2.0);
                 drawHyperOs4LiquidGlass(p, badgeLbl, r, std::min(r.height() * 0.48, 12.0),
-                                        0.6, r.center(), false, tint, 0.12);
+                                        0.45, r.center(), false, QColor(), 0.04);
                 return false;
             }
             return QObject::eventFilter(watched, event);
         }
 
+        // 5. Адаптивные полупрозрачные прогресс-бары
         if (auto *bar = qobject_cast<QProgressBar *>(watched)) {
             if (event->type() == QEvent::Paint) {
                 QPainter p(bar);
                 p.setRenderHint(QPainter::Antialiasing);
-                QRectF r(1.2, 1.2, bar->width() - 2.4, bar->height() - 2.4);
+                QRectF r(1.0, 1.0, bar->width() - 2.0, bar->height() - 2.0);
                 double rad = r.height() * 0.48;
-                drawHyperOs4LiquidGlass(p, bar, r, rad, 0.35, r.center(), false, QColor(56, 189, 248), 0.11);
+                drawHyperOs4LiquidGlass(p, bar, r, rad, 0.30, r.center(), false, QColor(), 0.04);
 
                 double frac = 1.0;
                 if (bar->maximum() > bar->minimum()) {
                     frac = std::clamp(double(bar->value() - bar->minimum()) / (bar->maximum() - bar->minimum()), 0.0, 1.0);
                 }
                 if (frac > 0.02) {
-                    QRectF fillR = r.adjusted(2.0, 2.0, -2.0, -2.0);
+                    Ton618GlWidget *bg = findBackdropTon618(bar);
+                    QColor cL = bg ? bg->sampleAdaptiveColor(bar, r.topLeft()) : QColor(56, 189, 248);
+                    QColor cR = bg ? bg->sampleAdaptiveColor(bar, r.topRight()) : QColor(251, 191, 36);
+                    cL.setAlpha(155);
+                    cR.setAlpha(170);
+
+                    QRectF fillR = r.adjusted(1.5, 1.5, -1.5, -1.5);
                     fillR.setWidth(fillR.width() * frac);
                     QLinearGradient fg(fillR.topLeft(), fillR.topRight());
-                    fg.setColorAt(0.0, QColor(56, 189, 248, 210));
-                    fg.setColorAt(0.5, QColor(52, 211, 153, 210));
-                    fg.setColorAt(1.0, QColor(251, 191, 36, 220));
-                    p.setPen(QPen(QColor(255, 255, 255, 190), 0.9));
+                    fg.setColorAt(0.0, cL);
+                    fg.setColorAt(1.0, cR);
+                    p.setPen(QPen(QColor(255, 255, 255, 120), 0.7));
                     p.setBrush(fg);
-                    p.drawRoundedRect(fillR, rad - 2.0, rad - 2.0);
+                    p.drawRoundedRect(fillR, rad - 1.5, rad - 1.5);
                 }
                 p.setPen(QColor(255, 255, 255));
                 QFont f = bar->font(); f.setBold(true); p.setFont(f);
@@ -650,6 +709,7 @@ protected:
             return QObject::eventFilter(watched, event);
         }
 
+        // 6. Адаптивные тумблеры UISwitch (окрашиваются в тон фона под переключателем)
         if (auto *chk = qobject_cast<QCheckBox *>(watched)) {
             auto &st = switches[chk];
             if (!st.initialized) {
@@ -690,14 +750,15 @@ protected:
                 double stretch = std::clamp(st.pressStretch.value, 0.0, 1.0);
                 double hov = std::clamp(st.hover.value, 0.0, 1.0);
 
+                Ton618GlWidget *bg = findBackdropTon618(chk);
+                QColor swColor = bg ? bg->sampleAdaptiveColor(chk, trackRect.center()) : QColor(56, 189, 248);
+
                 drawHyperOs4LiquidGlass(p, chk, trackRect, swH * 0.5, std::max(tPos, hov),
-                                        trackRect.center(), false,
-                                        tPos > 0.3 ? QColor(16, 185, 129) : QColor(56, 189, 248),
-                                        0.10 + 0.14 * tPos);
+                                        trackRect.center(), false, swColor, 0.04 + 0.06 * tPos);
 
                 if (tPos > 0.05) {
                     p.setPen(Qt::NoPen);
-                    p.setBrush(QColor(16, 185, 129, int(175 * tPos)));
+                    p.setBrush(QColor(swColor.red(), swColor.green(), swColor.blue(), int(135 * tPos)));
                     p.drawRoundedRect(trackRect.adjusted(1.0, 1.0, -1.0, -1.0), swH * 0.46, swH * 0.46);
                 }
 
@@ -709,18 +770,18 @@ protected:
                 QRectF thumbRect(thumbX, swY + 2.2, thumbW, thumbBaseD);
 
                 p.setPen(Qt::NoPen);
-                p.setBrush(QColor(0, 0, 0, 105));
-                p.drawRoundedRect(thumbRect.translated(0, 1.4), thumbBaseD * 0.5, thumbBaseD * 0.5);
+                p.setBrush(QColor(0, 0, 0, 85));
+                p.drawRoundedRect(thumbRect.translated(0, 1.2), thumbBaseD * 0.5, thumbBaseD * 0.5);
 
                 QLinearGradient thumbGrad(thumbRect.topLeft(), thumbRect.bottomRight());
-                thumbGrad.setColorAt(0.0, QColor(255, 255, 255, 255));
-                thumbGrad.setColorAt(1.0, QColor(226, 232, 240, 245));
+                thumbGrad.setColorAt(0.0, QColor(255, 255, 255, 250));
+                thumbGrad.setColorAt(1.0, blendColors(swColor, QColor(255, 255, 255), 0.72, 235));
                 p.setBrush(thumbGrad);
-                p.setPen(QPen(QColor(255, 255, 255, 255), 1.1));
+                p.setPen(QPen(QColor(255, 255, 255, 240), 0.9));
                 p.drawRoundedRect(thumbRect, thumbBaseD * 0.5, thumbBaseD * 0.5);
 
                 p.setPen(QColor(255, 255, 255));
-                QFont f = chk->font(); f.setWeight(QFont::DemiBold); p.setFont(f);
+                QFont f = chk->font(); f.setStyle(QFont::StyleNormal); f.setItalic(false); f.setWeight(QFont::Medium); p.setFont(f);
                 p.drawText(QRectF(trackRect.right() + 12.0, 0, chk->width() - trackRect.right() - 14.0, h),
                            Qt::AlignVCenter | Qt::AlignLeft, chk->text());
                 return true;

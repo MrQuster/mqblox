@@ -1,25 +1,25 @@
-* { outline: none; }
+* { outline: none; font-style: normal; }
 QMainWindow, QDialog, QInputDialog, QMessageBox, QFileDialog {
     background-color: #020307;
     color: #F8FAFC;
 }
 QToolTip {
-    background-color: rgba(12, 16, 30, 240);
+    background-color: rgba(10, 14, 26, 195);
     color: #FFFFFF;
-    border: 1px solid rgba(255, 255, 255, 130);
+    border: 1px solid rgba(255, 255, 255, 90);
     border-radius: 10px;
     padding: 6px 12px;
     font-weight: 700;
 }
 QScrollArea, QWidget#ScrollContents { background: transparent; border: none; }
 QScrollBar:vertical {
-    background: rgba(255, 255, 255, 16);
-    width: 7px;
+    background: rgba(255, 255, 255, 10);
+    width: 6px;
     border-radius: 3px;
     margin: 4px 1px;
 }
 QScrollBar::handle:vertical {
-    background: rgba(125, 211, 252, 165);
+    background: rgba(255, 255, 255, 95);
     border-radius: 3px;
     min-height: 34px;
 }
@@ -36,11 +36,11 @@ QLabel {
     background: transparent;
 }
 QLabel#LogoText { font-size: 19px; font-weight: 900; color: #FFFFFF; }
-QLabel#SectionTitle { font-size: 15px; font-weight: 800; color: #FDE047; }
-QLabel#SubText { font-size: 11px; color: rgba(226, 232, 240, 210); }
+QLabel#SectionTitle { font-size: 15px; font-weight: 800; color: #FFFFFF; }
+QLabel#SubText { font-size: 11px; color: rgba(241, 245, 249, 215); }
 
 QLabel#RobuxCardBadge {
-    color: #6EE7B7;
+    color: #FFFFFF;
     background: transparent;
     border: none;
     padding: 5px 14px;
@@ -56,7 +56,7 @@ QLabel#ToastBanner {
     font-weight: 800;
 }
 QLabel#AutoSyncBadge, QLabel#StatusBadge {
-    color: #FDE047;
+    color: #FFFFFF;
     background: transparent;
     border: none;
     padding: 6px 12px;
@@ -78,27 +78,27 @@ QSpinBox, QLineEdit {
     padding: 6px 12px;
     font-weight: 700;
     min-height: 24px;
-    selection-background-color: #38BDF8;
-    selection-color: #030408;
+    selection-background-color: rgba(255, 255, 255, 90);
+    selection-color: #FFFFFF;
 }
 QListView#ComboPopupList {
-    background-color: rgba(10, 16, 32, 175);
+    background-color: rgba(8, 12, 24, 155);
     color: #F8FAFC;
-    border: 1.5px solid rgba(255, 255, 255, 140);
+    border: 1px solid rgba(255, 255, 255, 85);
     border-radius: 14px;
     padding: 6px;
     outline: none;
 }
 QListView#ComboPopupList::item {
     background-color: transparent;
-    color: #E2E8F0;
+    color: #F1F5F9;
     padding: 9px 14px;
     border-radius: 9px;
     min-height: 22px;
 }
 QListView#ComboPopupList::item:hover,
 QListView#ComboPopupList::item:selected {
-    background-color: rgba(255, 255, 255, 42);
+    background-color: rgba(255, 255, 255, 38);
     color: #FFFFFF;
     font-weight: 800;
 }
@@ -112,9 +112,9 @@ QCheckBox {
 }
 QCheckBox::indicator { width: 48px; height: 26px; }
 QTextEdit {
-    background-color: rgba(8, 14, 28, 65);
-    color: #FDE68A;
-    border: 1.2px solid rgba(255, 255, 255, 95);
+    background-color: rgba(6, 10, 20, 28);
+    color: #F8FAFC;
+    border: 1px solid rgba(255, 255, 255, 52);
     border-radius: 14px;
     padding: 10px;
     font-family: 'JetBrains Mono', monospace;
