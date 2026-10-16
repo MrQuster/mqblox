@@ -90,7 +90,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_soberCtrl = new SoberController(&m_settingsMgr, this);
     m_apiClient = new RobloxApiClient(this);
 
-    setWindowTitle(tr("MqBlox v31.0 [HyperOS 4 Liquid Glass]"));
+    setWindowTitle(tr("MqBlox v32.0 [HyperOS 4 Liquid Glass]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
     if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -273,7 +273,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox v31.0 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox v32.0 — HyperOS 4 Liquid Glass"));
 
         auto *menu = new QMenu(nullptr);
         menu->setStyleSheet(
@@ -359,7 +359,7 @@ void MainWindow::initUi() {
         {"👥", tr("Аккаунты"), 1},
         {"⚙️", tr("Система"), 2},
         {"✨", tr("Графика"), 3},
-        {"🔥", tr("Читы и Моды"), 4},
+        {"🔥", tr("Твики и Моды"), 4},
         {"🔄", tr("Обновления"), 5}
     };
     for (const auto &it : navItems) {
@@ -404,7 +404,7 @@ void MainWindow::initUi() {
 
     auto *topBar = new QHBoxLayout();
     topBar->setSpacing(8);
-    auto *topHint = new QLabel(tr("MqBlox v31.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
+    auto *topHint = new QLabel(tr("MqBlox v32.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
     topHint->setObjectName("SubText");
     topBar->addWidget(topHint);
 
@@ -937,16 +937,23 @@ QWidget *MainWindow::buildCameraModsPage() {
     cc->setContentsMargins(18, 16, 18, 16);
     cc->setSpacing(10);
 
-    auto *tCam = new QLabel(tr("🔥 Читерские функции, Бесконечный Зум и Модификации Игры"));
+    auto *tCam = new QLabel(tr("🔥 Игровые Твики Видимости, Зума и Сетевого Отклика (Sober FFlags)"));
     tCam->setObjectName("SectionTitle");
     tCam->setWordWrap(true);
     cc->addWidget(tCam);
 
+    auto *infoNote = new QLabel(tr(
+        "💡 <b>Важно:</b> Конфигурация применяется при запуске или перезаходе в игру (кнопка «🔄 Перезайти»). "
+        "Увеличенный зум работает в плейсах со стандартной камерой (если скрипт самой карты не блокирует камеру принудительно)."));
+    infoNote->setObjectName("SubText");
+    infoNote->setWordWrap(true);
+    cc->addWidget(infoNote);
+
     auto *zoomRow = new QHBoxLayout();
     zoomRow->setSpacing(10);
-    m_chkInfZoom = new QCheckBox(tr("🔭 Снять ограничение зума в любых плейсах (Дистанция студов):"));
+    m_chkInfZoom = new QCheckBox(tr("🔭 Увеличить базовый лимит отдаления камеры (студов):"));
     m_spinMaxZoom = new QSpinBox();
-    m_spinMaxZoom->setRange(10, 100000);
+    m_spinMaxZoom->setRange(128, 99999);
     m_spinMaxZoom->setSingleStep(500);
     m_spinMaxZoom->setFixedWidth(130);
     zoomRow->addWidget(m_chkInfZoom, 1);
@@ -955,12 +962,12 @@ QWidget *MainWindow::buildCameraModsPage() {
 
     auto *presetRow = new QHBoxLayout();
     presetRow->setSpacing(10);
-    presetRow->addWidget(new QLabel(tr("Быстрый пресет зума:")));
+    presetRow->addWidget(new QLabel(tr("Быстрый выбор дистанции:")));
     m_comboCamZoom = new DarkComboBox();
-    m_comboCamZoom->addItem(tr("Стандартный (128)"), static_cast<int>(CameraZoomMode::Default));
+    m_comboCamZoom->addItem(tr("Стандартный (128 студов)"), static_cast<int>(CameraZoomMode::Default));
     m_comboCamZoom->addItem(tr("Средний обзор (500 студов)"), static_cast<int>(CameraZoomMode::Medium500));
     m_comboCamZoom->addItem(tr("Дальний обзор (2000 студов)"), static_cast<int>(CameraZoomMode::Far2000));
-    m_comboCamZoom->addItem(tr("Максимум (99999 студов)"), static_cast<int>(CameraZoomMode::Cosmic9999));
+    m_comboCamZoom->addItem(tr("Максимум движка (99999 студов)"), static_cast<int>(CameraZoomMode::Cosmic9999));
     connect(m_comboCamZoom, &QComboBox::currentIndexChanged, this, [this](int idx) {
         if (!m_spinMaxZoom) return;
         int m = m_comboCamZoom->itemData(idx).toInt();
@@ -975,21 +982,25 @@ QWidget *MainWindow::buildCameraModsPage() {
 
     auto *netRow = new QHBoxLayout();
     netRow->setSpacing(10);
-    netRow->addWidget(new QLabel(tr("🌐 Сетевой пакетный профиль (HitReg):")));
+    netRow->addWidget(new QLabel(tr("🌐 Сетевой пакетный профиль (MTU):")));
     m_comboNetOpt = new DarkComboBox();
-    m_comboNetOpt->addItem(tr("⚡ Ультра-отклик без задержки (MTU 1396)"), static_cast<int>(NetworkProfile::UltraLowPing));
-    m_comboNetOpt->addItem(tr("Стандартный сетевой буфер"), static_cast<int>(NetworkProfile::Balanced));
+    m_comboNetOpt->addItem(tr("⚡ Ультра-отклик без фрагментации (MTU 1396)"), static_cast<int>(NetworkProfile::UltraLowPing));
+    m_comboNetOpt->addItem(tr("Стандартный буфер (MTU 1492)"), static_cast<int>(NetworkProfile::Balanced));
     netRow->addWidget(m_comboNetOpt, 1);
     cc->addLayout(netRow);
 
-    m_chkNoclipCam  = new QCheckBox(tr("👻 Камера сквозь стены и двери (PopperCam Wallhack Bypass)"));
-    m_chkFullBright = new QCheckBox(tr("☀️ Ночное зрение / FullBright (Видеть в полной темноте без теней)"));
-    m_chkHitboxes   = new QCheckBox(tr("📦 Подсветка хитбоксов и границ объектов (BroadPhase AABB Hitboxes)"));
-    m_chkWallhop    = new QCheckBox(tr("⚡ Ускоренная физика для Wallhop, Speed-глэтчей и Corner Clip (38760 Hz)"));
-    m_chkClearFog   = new QCheckBox(tr("🌿 Убрать всю высокую траву, листву и густой туман (Чистый обзор карты)"));
-    m_chkHudFps     = new QCheckBox(tr("📊 Показывать игровой счётчик FPS и пинга на экране"));
+    m_chkFullBright = new QCheckBox(tr("☀️ Высветление тёмных карт (Voxel Lighting + полное отключение теней и PostFX)"));
+    m_chkClearFog   = new QCheckBox(tr("🌿 Убрать всю высокую 3D-траву на ландшафте (Чистый обзор поверхности)"));
+    m_chkHitboxes   = new QCheckBox(tr("📐 Упростить геометрию дальних объектов и укрытий (LOD Distance = 0)"));
+    m_chkHudFps     = new QCheckBox(tr("📊 Включить счётчик FPS на экране (FFlagDebugDisplayFPS + HUD; в игре также Shift+F5)"));
 
-    for (QCheckBox *chk : {m_chkNoclipCam, m_chkFullBright, m_chkHitboxes, m_chkWallhop, m_chkClearFog, m_chkHudFps, m_chkInfZoom}) {
+    // Скрываем заблокированные самим Sober флаги, чтобы в меню не было неработающих переключателей
+    m_chkNoclipCam  = new QCheckBox(page);
+    m_chkNoclipCam->setVisible(false);
+    m_chkWallhop    = new QCheckBox(page);
+    m_chkWallhop->setVisible(false);
+
+    for (QCheckBox *chk : {m_chkFullBright, m_chkClearFog, m_chkHitboxes, m_chkHudFps, m_chkInfZoom}) {
         if (chk != m_chkInfZoom) cc->addWidget(chk);
         connect(chk, &QAbstractButton::toggled, this, [this]() { triggerInstantAutosave(); });
     }
@@ -1003,14 +1014,14 @@ QWidget *MainWindow::buildCameraModsPage() {
     cm->setContentsMargins(18, 16, 18, 16);
     cm->setSpacing(10);
 
-    auto *tm = new QLabel(tr("📦 Управление модами (asset_overlay) и Кэшем"));
+    auto *tm = new QLabel(tr("📦 Управление модами (asset_overlay), Конфигом и Кэшем"));
     tm->setObjectName("SectionTitle");
     cm->addWidget(tm);
 
     auto *rMods = new QHBoxLayout();
     auto *bOpenOv = new AnimButton(tr("📂 Папка модов"));
+    auto *bShowCfg = new AnimButton(tr("🔍 Проверить config.json"));
     auto *bClean  = new AnimButton(tr("🧹 Очистить кэш карт"));
-    auto *bUpd    = new AnimButton(tr("⬆️ Обновить Sober"));
 
     connect(bOpenOv, &QPushButton::clicked, this, [this]() {
         QString ov = m_settingsMgr.soberBaseDir() + "/data/sober/asset_overlay";
@@ -1018,27 +1029,32 @@ QWidget *MainWindow::buildCameraModsPage() {
         QDir().mkpath(ov + "/content/textures/Cursors/KeyboardMouse");
         QProcess::startDetached("xdg-open", {ov});
     });
+    connect(bShowCfg, &QPushButton::clicked, this, [this]() {
+        saveSettingsNow(true);
+        QFile cf(m_settingsMgr.soberBaseDir() + "/config/sober/config.json");
+        if (cf.open(QIODevice::ReadOnly)) {
+            m_logView->clear();
+            m_logView->append("✓ Актуальный файл ~/.var/app/org.vinegarhq.Sober/config/sober/config.json:\n");
+            m_logView->append(QString::fromUtf8(cf.readAll()));
+        }
+    });
     connect(bClean, &QPushButton::clicked, this, [this]() {
         QString cacheDir = m_settingsMgr.soberBaseDir() + "/cache/sober/http";
         QDir(cacheDir).removeRecursively();
         QDir().mkpath(cacheDir);
         enqueueToast(tr("🧹 Кэш карт полностью очищен!"));
     });
-    connect(bUpd, &QPushButton::clicked, this, [this]() {
-        enqueueToast(tr("⬆️ Запущено фоновое обновление Sober..."));
-        QProcess::startDetached("flatpak", {"update", "--user", "-y", "org.vinegarhq.Sober"});
-    });
 
     rMods->addWidget(bOpenOv);
+    rMods->addWidget(bShowCfg);
     rMods->addWidget(bClean);
-    rMods->addWidget(bUpd);
     cm->addLayout(rMods);
     lay->addWidget(cardMods);
 
     m_logView = new QTextEdit();
     m_logView->setReadOnly(true);
     m_logView->document()->setMaximumBlockCount(1000);
-    m_logView->setMinimumHeight(150);
+    m_logView->setMinimumHeight(160);
     lay->addWidget(m_logView);
     return page;
 }
@@ -1106,11 +1122,11 @@ QWidget *MainWindow::buildUpdatesPage() {
 
 void MainWindow::refreshGitUpdateStatus() {
     if (!m_lblGitVersionInfo || !m_updateLogView) return;
-    m_lblGitVersionInfo->setText(tr("🟢 <b>Установлена актуальная версия MqBlox v31.0 [HyperOS 4 Liquid Glass]</b>"));
+    m_lblGitVersionInfo->setText(tr("🟢 <b>Установлена актуальная версия MqBlox v32.0 [HyperOS 4 Liquid Glass]</b>"));
     m_updateLogView->setPlainText(
-        "✦ [v31.0] Устранены лаги CPU от фонового видео: Ultra-HD кэш Pexels #39811262\n"
-        "✦ [v31.0] Исправлены отступы карточек (18x16 px) и швы внутри списков выбора\n"
-        "✦ [v31.0] Передана нативная работа с микрофоном напрямую в Sober (Esc -> Settings)"
+        "✦ [v32.0] Устранены лаги CPU от фонового видео: Ultra-HD кэш Pexels #39811262\n"
+        "✦ [v32.0] Исправлены отступы карточек (18x16 px) и швы внутри списков выбора\n"
+        "✦ [v32.0] Передана нативная работа с микрофоном напрямую в Sober (Esc -> Settings)"
     );
 }
 

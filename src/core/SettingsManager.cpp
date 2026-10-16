@@ -357,36 +357,38 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
     }
 
 
-    // Читерские функции и обход блокировки зума камеры
+    // Реально работающие в Sober модификации видимости и рендера:
     if (m_settings.unlockInfiniteZoom) {
+        // Работает на картах со стандартной камерой (где скрипт плейса не перезаписывает лимит каждый кадр)
         fflags["FIntCameraMaxZoomDistance"] = m_settings.customMaxZoom;
-        fflags["DFIntCameraMaxZoomDistance"] = m_settings.customMaxZoom;
-        fflags["FIntCameraFarZPlane"] = 100000;
-    }
-    if (m_settings.noclipCamWalls) {
-        fflags["FIntPoppercamPassthrough"] = 100;
-        fflags["DFIntCullFactorPixelThresholdMainViewHighQuality"] = 0;
-        fflags["DFIntCullFactorPixelThresholdMainViewLowQuality"] = 0;
     }
     if (m_settings.fullBright) {
-        fflags["FIntRenderShadowIntensity"] = 0;
+        // Высветление тёмных углов: принудительный Voxel-рендер + отключение теней и PostFX
         fflags["DFFlagDebugRenderForceTechnologyVoxel"] = true;
+        fflags["FFlagDebugForceFutureIsBrightPhase2"] = false;
         fflags["FFlagDebugForceFutureIsBrightPhase3"] = false;
+        fflags["FIntRenderShadowIntensity"] = 0;
+        fflags["DFIntCullFactorPixelThresholdShadowMapHighQuality"] = 2147483647;
+        fflags["DFIntCullFactorPixelThresholdShadowMapLowQuality"] = 2147483647;
         fflags["FFlagDisablePostFx"] = true;
     }
-    if (m_settings.showHitboxes) {
-        fflags["DFFlagDebugDrawBroadPhaseAABBs"] = true;
-        fflags["FFlagDebugDisplayUnthemedInstances"] = true;
-    }
-    if (m_settings.wallhopPhysics) {
-        fflags["DFIntS2PhysicsSenderRate"] = 38760;
-        fflags["DFIntMaxMissedWorldStepsRemembered"] = 1000;
-    }
     if (m_settings.clearFog) {
+        // Полное удаление 3D-травы на ландшафте для чистого обзора
         fflags["FIntFRMMinGrassDistance"] = 0;
         fflags["FIntFRMMaxGrassDistance"] = 0;
         fflags["FIntRenderGrassDetailStrands"] = 0;
     }
+    if (m_settings.lowMeshes || m_settings.showHitboxes) {
+        // Упрощение геометрии объектов (LOD) и отключение лишних деталей
+        fflags["DFIntCSGLevelOfDetailSwitchingDistance"] = 0;
+        fflags["DFIntCSGLevelOfDetailSwitchingDistanceL12"] = 0;
+        fflags["DFIntCSGLevelOfDetailSwitchingDistanceL23"] = 0;
+        fflags["DFIntCSGLevelOfDetailSwitchingDistanceL34"] = 0;
+    }
+    if (m_settings.showHudFps) {
+        fflags["FFlagDebugDisplayFPS"] = true;
+    }
+
 
     QJsonObject soberCfg;
     soberCfg["bring_back_oof"] = m_settings.bringBackOof;
