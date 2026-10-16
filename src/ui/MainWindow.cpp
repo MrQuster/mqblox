@@ -1087,9 +1087,51 @@ QWidget *MainWindow::buildUpdatesPage() {
 
     auto *btnRow = new QHBoxLayout();
     auto *btnCheck = new AnimButton(tr("🔍 Проверить GitHub"), nullptr, QColor(56, 189, 248));
+    auto *btnPull = new AnimButton(tr("⬇️ Установить обнову с GitHub"), nullptr, QColor(16, 185, 129), true);
     auto *btnRestart = new AnimButton(tr("🚀 Перезапустить"), nullptr, QColor(245, 158, 11));
 
     connect(btnCheck, &QPushButton::clicked, this, [this]() { refreshGitUpdateStatus(); });
+    connect(btnPull, &QPushButton::clicked, this, [this, btnPull]() {
+        btnPull->setEnabled(false);
+        m_updateProgressBar->setRange(0, 0);
+        m_updateProgressBar->setFormat(tr("⏳ Скачивание с GitHub и компиляция..."));
+        m_updateLogView->clear();
+        m_updateLogView->append("==> Загрузка свежего кода с https://github.com/MrQuster/mqblox ...");
+
+        auto *proc = new QProcess(this);
+        proc->setProcessChannelMode(QProcess::MergedChannels);
+        proc->setWorkingDirectory(QDir::homePath() + "/mqblox_v13_src");
+        connect(proc, &QProcess::readyReadStandardOutput, this, [this, proc]() {
+            m_updateLogView->append(QString::fromUtf8(proc->readAllStandardOutput()).trimmed());
+        });
+        connect(proc, &QProcess::finished, this, [this, proc, btnPull](int code, QProcess::ExitStatus) {
+            proc->deleteLater();
+            btnPull->setEnabled(true);
+            m_updateProgressBar->setRange(0, 100);
+            m_updateProgressBar->setValue(100);
+            if (code == 0) {
+                m_updateProgressBar->setFormat(tr("✓ Обновление установлено! Перезапуск через 2 с..."));
+                enqueueToast(tr("🎉 Обновление с GitHub установлено! Перезапуск..."));
+                QTimer::singleShot(1800, this, [this]() {
+                    m_forceQuit = true;
+                    if (m_trayIcon) m_trayIcon->hide();
+                    QProcess::startDetached(QDir::homePath() + "/.local/bin/mqblox-bin", {});
+                    QApplication::quit();
+                });
+            } else {
+                m_updateProgressBar->setFormat(tr("⚠️ Ошибка сборки обновления (см. журнал ниже)"));
+                enqueueToast(tr("⚠️ Ошибка при обновлении"));
+            }
+        });
+                proc->start("bash", QStringList{"-c",
+            "set -e; "
+            "git fetch origin main && git reset --hard origin/main; "
+            "cmake -B build -S . -DCMAKE_BUILD_TYPE=Release; "
+            "cmake --build build --parallel; "
+            "install -Dm755 build/mqblox '$HOME/.local/bin/mqblox-bin'; "
+            "ln -sf '$HOME/.local/bin/mqblox-bin' '$HOME/.local/bin/mqblox'"
+        });
+    });
     connect(btnRestart, &QPushButton::clicked, this, [this]() {
         m_forceQuit = true;
         if (m_trayIcon) m_trayIcon->hide();
@@ -1098,6 +1140,7 @@ QWidget *MainWindow::buildUpdatesPage() {
     });
 
     btnRow->addWidget(btnCheck);
+    btnRow->addWidget(btnPull);
     btnRow->addWidget(btnRestart);
     ci->addLayout(btnRow);
     lay->addWidget(cardInfo);
