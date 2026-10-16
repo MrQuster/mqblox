@@ -385,7 +385,11 @@ public:
 
     explicit DarkComboBox(QWidget *parent = nullptr) : QComboBox(parent) {
         setMinimumHeight(36);
+        setMinimumWidth(60);
         setMouseTracking(true);
+        setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        setMinimumContentsLength(4);
+        setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         setMinimumContentsLength(6);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -626,7 +630,9 @@ protected:
                 f.setBold(true);
                 p.setFont(f);
                 p.setPen(QPen(QBrush(tg), 1.0));
-                p.drawText(secLbl->rect(), Qt::AlignVCenter | Qt::AlignLeft, secLbl->text());
+                secLbl->setMinimumWidth(0);
+                QString secTxt = p.fontMetrics().elidedText(secLbl->text(), Qt::ElideRight, std::max(20, secLbl->width() - 4));
+                p.drawText(secLbl->rect(), Qt::AlignVCenter | Qt::AlignLeft, secTxt);
                 return true;
             }
         }
@@ -715,6 +721,8 @@ protected:
             if (!st.initialized) {
                 st.initialized = true;
                 st.pos.value = st.pos.target = chk->isChecked() ? 1.0 : 0.0;
+                chk->setMinimumWidth(0);
+                chk->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
                 chk->setCursor(Qt::PointingHandCursor);
                 connect(chk, &QCheckBox::toggled, this, [this, chk](bool c) {
                     auto &s = switches[chk];
@@ -782,8 +790,9 @@ protected:
 
                 p.setPen(QColor(255, 255, 255));
                 QFont f = chk->font(); f.setStyle(QFont::StyleNormal); f.setItalic(false); f.setWeight(QFont::Medium); p.setFont(f);
+                QString chkTxt = p.fontMetrics().elidedText(chk->text(), Qt::ElideRight, std::max(20, int(chk->width() - trackRect.right() - 16.0)));
                 p.drawText(QRectF(trackRect.right() + 12.0, 0, chk->width() - trackRect.right() - 14.0, h),
-                           Qt::AlignVCenter | Qt::AlignLeft, chk->text());
+                           Qt::AlignVCenter | Qt::AlignLeft, chkTxt);
                 return true;
             }
         }

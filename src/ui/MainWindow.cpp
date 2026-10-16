@@ -33,34 +33,54 @@ public:
         viewport()->setStyleSheet("background: transparent;");
     }
 protected:
+    bool eventFilter(QObject *o, QEvent *e) override {
+        bool res = QScrollArea::eventFilter(o, e);
+        if (widget() && widget()->x() != 0) {
+            widget()->move(0, widget()->y());
+        }
+        return res;
+    }
     void resizeEvent(QResizeEvent *e) override {
         QScrollArea::resizeEvent(e);
-        if (widget()) {
-            widget()->setMinimumWidth(0);
-            widget()->setMaximumWidth(viewport()->width());
-        }
         if (horizontalScrollBar()) {
             horizontalScrollBar()->setRange(0, 0);
             horizontalScrollBar()->setValue(0);
         }
+        if (widget()) {
+            widget()->setFixedWidth(viewport()->width());
+            if (widget()->x() != 0) widget()->move(0, widget()->y());
+        }
     }
     void scrollContentsBy(int, int dy) override {
+        QScrollArea::scrollContentsBy(0, dy);
         if (horizontalScrollBar() && horizontalScrollBar()->value() != 0) {
             horizontalScrollBar()->setValue(0);
         }
-        QScrollArea::scrollContentsBy(0, dy);
+        if (widget() && widget()->x() != 0) {
+            widget()->move(0, widget()->y());
+        }
     }
 };
 
 static QScrollArea *wrapScrollable(QWidget *w) {
     auto *s = new LockedScrollArea();
     w->setObjectName("ScrollContents");
-    w->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    w->setMinimumWidth(0);
     if (w->layout()) {
-        w->layout()->setContentsMargins(10, 6, 14, 14);
+        w->layout()->setContentsMargins(14, 8, 16, 14);
         w->layout()->setSpacing(12);
     }
+    // Сбрасываем минимальную ширину у всех вложенных виджетов, чтобы длинный текст никогда не распирал карточку шире окна
+    for (QWidget *child : w->findChildren<QWidget *>()) {
+        if (!qobject_cast<QSpinBox *>(child)) {
+            child->setMinimumWidth(0);
+        }
+        if (auto *lbl = qobject_cast<QLabel *>(child)) {
+            lbl->setWordWrap(true);
+        }
+    }
     s->setWidget(w);
+    w->installEventFilter(s);
     return s;
 }
 
@@ -70,7 +90,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_soberCtrl = new SoberController(&m_settingsMgr, this);
     m_apiClient = new RobloxApiClient(this);
 
-    setWindowTitle(tr("MqBlox v30.0 [HyperOS 4 Liquid Glass]"));
+    setWindowTitle(tr("MqBlox v31.0 [HyperOS 4 Liquid Glass]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
     if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -253,7 +273,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox v30.0 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox v31.0 — HyperOS 4 Liquid Glass"));
 
         auto *menu = new QMenu(nullptr);
         menu->setStyleSheet(
@@ -335,12 +355,12 @@ void MainWindow::initUi() {
 
     struct NavItem { QString ico; QString title; int idx; };
     const std::vector<NavItem> navItems = {
-        {"🏠", tr("Главная (Roblox)"), 0},
-        {"👥", tr("Мульти-Аккаунты"), 1},
-        {"🛡️", tr("Железо и Система"), 2},
-        {"⚡", tr("Пресеты Графики"), 3},
-        {"🌌", tr("Камера и Моды"), 4},
-        {"🔄", tr("Обновления GitHub"), 5}
+        {"🏠", tr("Главная"), 0},
+        {"👥", tr("Аккаунты"), 1},
+        {"⚙️", tr("Система"), 2},
+        {"✨", tr("Графика"), 3},
+        {"🔥", tr("Читы и Моды"), 4},
+        {"🔄", tr("Обновления"), 5}
     };
     for (const auto &it : navItems) {
         auto *btn = new AnimNavButton(it.ico, it.title);
@@ -384,7 +404,7 @@ void MainWindow::initUi() {
 
     auto *topBar = new QHBoxLayout();
     topBar->setSpacing(8);
-    auto *topHint = new QLabel(tr("MqBlox v30.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
+    auto *topHint = new QLabel(tr("MqBlox v31.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
     topHint->setObjectName("SubText");
     topBar->addWidget(topHint);
 
@@ -623,7 +643,7 @@ QWidget *MainWindow::buildHardwareAudioPage() {
     hw->setColumnStretch(0, 0);
     hw->setColumnStretch(1, 1);
 
-    auto *thw = new QLabel(tr("🖥️ Аппаратная поддержка Видеокарт (AMD / NVIDIA) и Процессоров (Intel / AMD)"));
+    auto *thw = new QLabel(tr("🖥️ Видеокарта и Процессор"));
     thw->setObjectName("SectionTitle");
     hw->addWidget(thw, 0, 0, 1, 2);
 
@@ -659,7 +679,7 @@ QWidget *MainWindow::buildHardwareAudioPage() {
     c1->setContentsMargins(18, 16, 18, 16);
     c1->setSpacing(10);
 
-    auto *t1 = new QLabel(tr("🛡️ Оптимизация Системы, Фон Pexels #39811262 и Нативный Микрофон Sober"));
+    auto *t1 = new QLabel(tr("⚙️ Параметры Системы и Оформления"));
     t1->setObjectName("SectionTitle");
     c1->addWidget(t1);
 
@@ -913,34 +933,68 @@ QWidget *MainWindow::buildCameraModsPage() {
 
     auto *cardCam = new QFrame();
     cardCam->setObjectName("GlassCard");
-    auto *cc = new QGridLayout(cardCam);
+    auto *cc = new QVBoxLayout(cardCam);
     cc->setContentsMargins(18, 16, 18, 16);
     cc->setSpacing(10);
-    cc->setColumnStretch(0, 0);
-    cc->setColumnStretch(1, 1);
 
-    auto *tCam = new QLabel(tr("🌌 Студия Камеры, Сетевого Пинга и Игрового HUD"));
+    auto *tCam = new QLabel(tr("🔥 Читерские функции, Бесконечный Зум и Модификации Игры"));
     tCam->setObjectName("SectionTitle");
-    cc->addWidget(tCam, 0, 0, 1, 2);
+    tCam->setWordWrap(true);
+    cc->addWidget(tCam);
 
-    cc->addWidget(new QLabel(tr("🔭 Отдаление камеры (Zoom Unlocker):")), 1, 0);
+    auto *zoomRow = new QHBoxLayout();
+    zoomRow->setSpacing(10);
+    m_chkInfZoom = new QCheckBox(tr("🔭 Снять ограничение зума в любых плейсах (Дистанция студов):"));
+    m_spinMaxZoom = new QSpinBox();
+    m_spinMaxZoom->setRange(10, 100000);
+    m_spinMaxZoom->setSingleStep(500);
+    m_spinMaxZoom->setFixedWidth(130);
+    zoomRow->addWidget(m_chkInfZoom, 1);
+    zoomRow->addWidget(m_spinMaxZoom);
+    cc->addLayout(zoomRow);
+
+    auto *presetRow = new QHBoxLayout();
+    presetRow->setSpacing(10);
+    presetRow->addWidget(new QLabel(tr("Быстрый пресет зума:")));
     m_comboCamZoom = new DarkComboBox();
-    m_comboCamZoom->addItem(tr("Стандартное ограничение"), static_cast<int>(CameraZoomMode::Default));
+    m_comboCamZoom->addItem(tr("Стандартный (128)"), static_cast<int>(CameraZoomMode::Default));
     m_comboCamZoom->addItem(tr("Средний обзор (500 студов)"), static_cast<int>(CameraZoomMode::Medium500));
     m_comboCamZoom->addItem(tr("Дальний обзор (2000 студов)"), static_cast<int>(CameraZoomMode::Far2000));
-    m_comboCamZoom->addItem(tr("Космический зум (9999 студов)"), static_cast<int>(CameraZoomMode::Cosmic9999));
-    cc->addWidget(m_comboCamZoom, 1, 1);
+    m_comboCamZoom->addItem(tr("Максимум (99999 студов)"), static_cast<int>(CameraZoomMode::Cosmic9999));
+    connect(m_comboCamZoom, &QComboBox::currentIndexChanged, this, [this](int idx) {
+        if (!m_spinMaxZoom) return;
+        int m = m_comboCamZoom->itemData(idx).toInt();
+        if (m == 0) m_spinMaxZoom->setValue(128);
+        else if (m == 1) m_spinMaxZoom->setValue(500);
+        else if (m == 2) m_spinMaxZoom->setValue(2000);
+        else m_spinMaxZoom->setValue(99999);
+        triggerInstantAutosave();
+    });
+    presetRow->addWidget(m_comboCamZoom, 1);
+    cc->addLayout(presetRow);
 
-    cc->addWidget(new QLabel(tr("🌐 Сетевой профиль пакетов:")), 2, 0);
+    auto *netRow = new QHBoxLayout();
+    netRow->setSpacing(10);
+    netRow->addWidget(new QLabel(tr("🌐 Сетевой пакетный профиль (HitReg):")));
     m_comboNetOpt = new DarkComboBox();
-    m_comboNetOpt->addItem(tr("⚡ Ультра-отклик (MTU 1396)"), static_cast<int>(NetworkProfile::UltraLowPing));
-    m_comboNetOpt->addItem(tr("Сбалансированный"), static_cast<int>(NetworkProfile::Balanced));
-    cc->addWidget(m_comboNetOpt, 2, 1);
+    m_comboNetOpt->addItem(tr("⚡ Ультра-отклик без задержки (MTU 1396)"), static_cast<int>(NetworkProfile::UltraLowPing));
+    m_comboNetOpt->addItem(tr("Стандартный сетевой буфер"), static_cast<int>(NetworkProfile::Balanced));
+    netRow->addWidget(m_comboNetOpt, 1);
+    cc->addLayout(netRow);
 
-    m_chkHudFps   = new QCheckBox(tr("📊 Показывать счётчик FPS на экране"));
-    m_chkClearFog = new QCheckBox(tr("☁️ Убрать густой туман"));
-    cc->addWidget(m_chkHudFps, 3, 0);
-    cc->addWidget(m_chkClearFog, 3, 1);
+    m_chkNoclipCam  = new QCheckBox(tr("👻 Камера сквозь стены и двери (PopperCam Wallhack Bypass)"));
+    m_chkFullBright = new QCheckBox(tr("☀️ Ночное зрение / FullBright (Видеть в полной темноте без теней)"));
+    m_chkHitboxes   = new QCheckBox(tr("📦 Подсветка хитбоксов и границ объектов (BroadPhase AABB Hitboxes)"));
+    m_chkWallhop    = new QCheckBox(tr("⚡ Ускоренная физика для Wallhop, Speed-глэтчей и Corner Clip (38760 Hz)"));
+    m_chkClearFog   = new QCheckBox(tr("🌿 Убрать всю высокую траву, листву и густой туман (Чистый обзор карты)"));
+    m_chkHudFps     = new QCheckBox(tr("📊 Показывать игровой счётчик FPS и пинга на экране"));
+
+    for (QCheckBox *chk : {m_chkNoclipCam, m_chkFullBright, m_chkHitboxes, m_chkWallhop, m_chkClearFog, m_chkHudFps, m_chkInfZoom}) {
+        if (chk != m_chkInfZoom) cc->addWidget(chk);
+        connect(chk, &QAbstractButton::toggled, this, [this]() { triggerInstantAutosave(); });
+    }
+    connect(m_spinMaxZoom, &QSpinBox::valueChanged, this, [this]() { triggerInstantAutosave(); });
+    connect(m_comboNetOpt, &QComboBox::currentIndexChanged, this, [this]() { triggerInstantAutosave(); });
     lay->addWidget(cardCam);
 
     auto *cardMods = new QFrame();
@@ -949,12 +1003,12 @@ QWidget *MainWindow::buildCameraModsPage() {
     cm->setContentsMargins(18, 16, 18, 16);
     cm->setSpacing(10);
 
-    auto *tm = new QLabel(tr("📦 Центр управления модами (asset_overlay) и Кэшем карт"));
+    auto *tm = new QLabel(tr("📦 Управление модами (asset_overlay) и Кэшем"));
     tm->setObjectName("SectionTitle");
     cm->addWidget(tm);
 
     auto *rMods = new QHBoxLayout();
-    auto *bOpenOv = new AnimButton(tr("📂 Папка модов (asset_overlay)"));
+    auto *bOpenOv = new AnimButton(tr("📂 Папка модов"));
     auto *bClean  = new AnimButton(tr("🧹 Очистить кэш карт"));
     auto *bUpd    = new AnimButton(tr("⬆️ Обновить Sober"));
 
@@ -981,15 +1035,10 @@ QWidget *MainWindow::buildCameraModsPage() {
     cm->addLayout(rMods);
     lay->addWidget(cardMods);
 
-    connect(m_comboCamZoom, &QComboBox::currentIndexChanged, this, [this]() { triggerInstantAutosave(); });
-    connect(m_comboNetOpt, &QComboBox::currentIndexChanged, this, [this]() { triggerInstantAutosave(); });
-    connect(m_chkHudFps, &QAbstractButton::toggled, this, [this]() { triggerInstantAutosave(); });
-    connect(m_chkClearFog, &QAbstractButton::toggled, this, [this]() { triggerInstantAutosave(); });
-
     m_logView = new QTextEdit();
     m_logView->setReadOnly(true);
     m_logView->document()->setMaximumBlockCount(1000);
-    m_logView->setMinimumHeight(170);
+    m_logView->setMinimumHeight(150);
     lay->addWidget(m_logView);
     return page;
 }
@@ -1057,11 +1106,11 @@ QWidget *MainWindow::buildUpdatesPage() {
 
 void MainWindow::refreshGitUpdateStatus() {
     if (!m_lblGitVersionInfo || !m_updateLogView) return;
-    m_lblGitVersionInfo->setText(tr("🟢 <b>Установлена актуальная версия MqBlox v30.0 [HyperOS 4 Liquid Glass]</b>"));
+    m_lblGitVersionInfo->setText(tr("🟢 <b>Установлена актуальная версия MqBlox v31.0 [HyperOS 4 Liquid Glass]</b>"));
     m_updateLogView->setPlainText(
-        "✦ [v30.0] Устранены лаги CPU от фонового видео: Ultra-HD кэш Pexels #39811262\n"
-        "✦ [v30.0] Исправлены отступы карточек (18x16 px) и швы внутри списков выбора\n"
-        "✦ [v30.0] Передана нативная работа с микрофоном напрямую в Sober (Esc -> Settings)"
+        "✦ [v31.0] Устранены лаги CPU от фонового видео: Ultra-HD кэш Pexels #39811262\n"
+        "✦ [v31.0] Исправлены отступы карточек (18x16 px) и швы внутри списков выбора\n"
+        "✦ [v31.0] Передана нативная работа с микрофоном напрямую в Sober (Esc -> Settings)"
     );
 }
 

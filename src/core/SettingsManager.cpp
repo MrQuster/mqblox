@@ -130,6 +130,12 @@ void SettingsManager::loadAll() {
     m_settings.enableHiDpi = s.value("enableHiDpi").toBool(false);
     m_settings.showHudFps = s.value("showHudFps").toBool(false);
     m_settings.clearFog = s.value("clearFog").toBool(false);
+    m_settings.customMaxZoom = s.value("customMaxZoom").toInt(99999);
+    m_settings.unlockInfiniteZoom = s.value("unlockInfiniteZoom").toBool(true);
+    m_settings.noclipCamWalls = s.value("noclipCamWalls").toBool(false);
+    m_settings.fullBright = s.value("fullBright").toBool(false);
+    m_settings.showHitboxes = s.value("showHitboxes").toBool(false);
+    m_settings.wallhopPhysics = s.value("wallhopPhysics").toBool(false);
 
     m_settings.lastPlaceInput = s.value("lastPlaceInput").toString();
     m_settings.customFflagsJson = s.value("customFflagsJson").toString("{}");
@@ -198,6 +204,12 @@ bool SettingsManager::saveAll(QString *errMsg) {
     s["enableHiDpi"] = m_settings.enableHiDpi;
     s["showHudFps"] = m_settings.showHudFps;
     s["clearFog"] = m_settings.clearFog;
+    s["customMaxZoom"] = m_settings.customMaxZoom;
+    s["unlockInfiniteZoom"] = m_settings.unlockInfiniteZoom;
+    s["noclipCamWalls"] = m_settings.noclipCamWalls;
+    s["fullBright"] = m_settings.fullBright;
+    s["showHitboxes"] = m_settings.showHitboxes;
+    s["wallhopPhysics"] = m_settings.wallhopPhysics;
 
     s["lastPlaceInput"] = m_settings.lastPlaceInput;
     s["customFflagsJson"] = m_settings.customFflagsJson;
@@ -342,6 +354,38 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["FFlagDebugDisableTelemetryV2Counter"] = true;
         fflags["FFlagDebugDisableTelemetryV2Event"] = true;
         fflags["FFlagDebugDisableTelemetryV2Stat"] = true;
+    }
+
+
+    // Читерские функции и обход блокировки зума камеры
+    if (m_settings.unlockInfiniteZoom) {
+        fflags["FIntCameraMaxZoomDistance"] = m_settings.customMaxZoom;
+        fflags["DFIntCameraMaxZoomDistance"] = m_settings.customMaxZoom;
+        fflags["FIntCameraFarZPlane"] = 100000;
+    }
+    if (m_settings.noclipCamWalls) {
+        fflags["FIntPoppercamPassthrough"] = 100;
+        fflags["DFIntCullFactorPixelThresholdMainViewHighQuality"] = 0;
+        fflags["DFIntCullFactorPixelThresholdMainViewLowQuality"] = 0;
+    }
+    if (m_settings.fullBright) {
+        fflags["FIntRenderShadowIntensity"] = 0;
+        fflags["DFFlagDebugRenderForceTechnologyVoxel"] = true;
+        fflags["FFlagDebugForceFutureIsBrightPhase3"] = false;
+        fflags["FFlagDisablePostFx"] = true;
+    }
+    if (m_settings.showHitboxes) {
+        fflags["DFFlagDebugDrawBroadPhaseAABBs"] = true;
+        fflags["FFlagDebugDisplayUnthemedInstances"] = true;
+    }
+    if (m_settings.wallhopPhysics) {
+        fflags["DFIntS2PhysicsSenderRate"] = 38760;
+        fflags["DFIntMaxMissedWorldStepsRemembered"] = 1000;
+    }
+    if (m_settings.clearFog) {
+        fflags["FIntFRMMinGrassDistance"] = 0;
+        fflags["FIntFRMMaxGrassDistance"] = 0;
+        fflags["FIntRenderGrassDetailStrands"] = 0;
     }
 
     QJsonObject soberCfg;

@@ -75,6 +75,12 @@ struct AppSettings {
     bool enableHiDpi = false;
     bool showHudFps = false;
     bool clearFog = false;
+    int customMaxZoom = 99999;
+    bool unlockInfiniteZoom = true;
+    bool noclipCamWalls = false;
+    bool fullBright = false;
+    bool showHitboxes = false;
+    bool wallhopPhysics = false;
 
     QString lastPlaceInput;
     QString customFflagsJson = "{}";

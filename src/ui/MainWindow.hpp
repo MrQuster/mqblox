@@ -168,6 +168,12 @@ private:
     DarkComboBox *m_comboNetOpt = nullptr;
     QCheckBox *m_chkHudFps = nullptr;
     QCheckBox *m_chkClearFog = nullptr;
+    QSpinBox *m_spinMaxZoom = nullptr;
+    QCheckBox *m_chkInfZoom = nullptr;
+    QCheckBox *m_chkNoclipCam = nullptr;
+    QCheckBox *m_chkFullBright = nullptr;
+    QCheckBox *m_chkHitboxes = nullptr;
+    QCheckBox *m_chkWallhop = nullptr;
     QTextEdit *m_logView = nullptr;
 
     QLabel *m_lblGitVersionInfo = nullptr;
