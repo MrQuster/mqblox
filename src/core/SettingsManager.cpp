@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QThread>
 
 namespace mqblox {
@@ -64,6 +65,7 @@ void SettingsManager::loadAll() {
     QFile f(mqDir() + "/settings_v13.json");
     if (!f.open(QIODevice::ReadOnly)) return;
     QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
+    f.close();
 
     m_activeAccountId = root.value("activeAccountId").toString("default");
     QJsonArray arr = root.value("accounts").toArray();
@@ -84,6 +86,7 @@ void SettingsManager::loadAll() {
 
     QJsonObject s = root.value("settings").toObject();
     if (s.isEmpty()) return;
+
     m_settings.resMode = static_cast<ResolutionMode>(s.value("resMode").toInt(0));
     m_settings.gpuVendor = static_cast<GpuVendorMode>(s.value("gpuVendor").toInt(0));
     m_settings.cpuVendor = static_cast<CpuVendorMode>(s.value("cpuVendor").toInt(0));
@@ -93,7 +96,7 @@ void SettingsManager::loadAll() {
     m_settings.lighting = static_cast<LightingMode>(s.value("lighting").toInt(0));
     m_settings.textureQuality = static_cast<TextureQuality>(s.value("textureQuality").toInt(0));
     m_settings.msaa = static_cast<MsaaMode>(s.value("msaa").toInt(0));
-    m_settings.camZoom = static_cast<CameraZoomMode>(s.value("camZoom").toInt(0));
+    m_settings.camZoom = static_cast<CameraZoomMode>(s.value("camZoom").toInt(3));
     m_settings.netProfile = static_cast<NetworkProfile>(s.value("netProfile").toInt(0));
 
     m_settings.targetFps = s.value("targetFps").toInt(240);
@@ -128,6 +131,7 @@ void SettingsManager::loadAll() {
     m_settings.serverRegionIndicator = s.value("serverRegionIndicator").toBool(true);
     m_settings.gamepadSupport = s.value("gamepadSupport").toBool(true);
     m_settings.enableHiDpi = s.value("enableHiDpi").toBool(false);
+
     m_settings.showHudFps = s.value("showHudFps").toBool(false);
     m_settings.clearFog = s.value("clearFog").toBool(false);
     m_settings.customMaxZoom = s.value("customMaxZoom").toInt(99999);
@@ -202,6 +206,7 @@ bool SettingsManager::saveAll(QString *errMsg) {
     s["serverRegionIndicator"] = m_settings.serverRegionIndicator;
     s["gamepadSupport"] = m_settings.gamepadSupport;
     s["enableHiDpi"] = m_settings.enableHiDpi;
+
     s["showHudFps"] = m_settings.showHudFps;
     s["clearFog"] = m_settings.clearFog;
     s["customMaxZoom"] = m_settings.customMaxZoom;
@@ -231,10 +236,10 @@ bool SettingsManager::saveAll(QString *errMsg) {
     root["accounts"] = arr;
     root["settings"] = s;
 
-    QFile f(mqDir() + "/settings_v13.json");
+    QSaveFile f(mqDir() + "/settings_v13.json");
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-        f.close();
+        f.commit();
     }
     return true;
 }
@@ -250,13 +255,30 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         return false;
     }
 
+    // Сохраняем сторонние ключи в существующем config.json Sober, если они там были (например touch_mode)
+    QString cfgDir = soberBaseDir() + "/config/sober";
+    QDir().mkpath(cfgDir);
+    QString cfgPath = cfgDir + "/config.json";
+
+    QJsonObject soberCfg;
+    {
+        QFile oldF(cfgPath);
+        if (oldF.open(QIODevice::ReadOnly)) {
+            QJsonObject existing = QJsonDocument::fromJson(oldF.readAll()).object();
+            if (!existing.isEmpty()) soberCfg = existing;
+            oldF.close();
+        }
+    }
+
     QJsonObject fflags = customDoc.object();
 
+    // 1. Разблокировка FPS
     int fpsVal = m_settings.unlimitedFps ? 9999 : m_settings.targetFps;
     fflags["DFIntTaskSchedulerTargetFps"] = fpsVal;
     fflags["FFlagTaskSchedulerLimitTargetFpsTo2402"] = false;
     fflags["FFlagGameBasicSettingsFramerateCap5"] = true;
 
+    // 2. Графический API
     if (m_settings.graphicsApi == GraphicsApi::Vulkan) {
         fflags["FFlagDebugGraphicsPreferVulkan"] = true;
         fflags["FFlagDebugGraphicsDisableOpenGL"] = true;
@@ -265,20 +287,25 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["FFlagDebugGraphicsPreferVulkan"] = false;
     }
 
-    if (m_settings.lighting == LightingMode::Voxel) {
+    // 3. Освещение
+    if (m_settings.lighting == LightingMode::Voxel || m_settings.fullBright) {
         fflags["DFFlagDebugRenderForceTechnologyVoxel"] = true;
+        fflags["FFlagDebugForceFutureIsBrightPhase2"] = false;
+        fflags["FFlagDebugForceFutureIsBrightPhase3"] = false;
     } else if (m_settings.lighting == LightingMode::ShadowMap) {
         fflags["FFlagDebugForceFutureIsBrightPhase2"] = true;
     } else if (m_settings.lighting == LightingMode::FuturePhase3) {
         fflags["FFlagDebugForceFutureIsBrightPhase3"] = true;
     }
 
+    // 4. Качество текстур (Level 0..3)
     if (m_settings.textureQuality != TextureQuality::Auto) {
         int texLvl = static_cast<int>(m_settings.textureQuality) - 1;
         fflags["DFFlagTextureQualityOverrideEnabled"] = true;
         fflags["DFIntTextureQualityOverride"] = texLvl;
     }
 
+    // 5. Сглаживание MSAA
     int msaaSamples = 0;
     if (m_settings.msaa == MsaaMode::X2) msaaSamples = 2;
     else if (m_settings.msaa == MsaaMode::X4) msaaSamples = 4;
@@ -287,28 +314,37 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["FIntDebugForceMSAASamples"] = msaaSamples;
     }
 
+    // 6. Уровень графики FRM (1..21)
     if (m_settings.frmQualityLevel > 0) {
         fflags["DFIntDebugFRMQualityLevelOverride"] = m_settings.frmQualityLevel;
         fflags["FIntRomarkStartWithGraphicQualityLevel"] = m_settings.frmQualityLevel;
     }
 
-    if (m_settings.noShadows) {
+    // 7. ЧИТ-ФУНКЦИЯ: FullBright (Ночное зрение без темноты, теней и тумана)
+    if (m_settings.noShadows || m_settings.fullBright) {
         fflags["FIntRenderShadowIntensity"] = 0;
-        fflags["DFIntCullFactorPixelThresholdShadowMapHighQuality"] = 0;
-        fflags["DFIntCullFactorPixelThresholdShadowMapLowQuality"] = 0;
+        fflags["DFIntCullFactorPixelThresholdShadowMapHighQuality"] = 2147483647;
+        fflags["DFIntCullFactorPixelThresholdShadowMapLowQuality"] = 2147483647;
+        fflags["FFlagDebugRenderingSetDeterministic"] = true;
     } else if (m_settings.ultraShadows) {
         fflags["FIntRenderShadowIntensity"] = 100;
         fflags["FIntRenderShadowMapBias"] = 0;
     }
 
-    if (m_settings.noPostFx) fflags["FFlagDisablePostFx"] = true;
-    if (m_settings.greySky) fflags["FFlagDebugSkyGray"] = true;
+    if (m_settings.noPostFx || m_settings.fullBright) {
+        fflags["FFlagDisablePostFx"] = true;
+    }
+    if (m_settings.greySky) {
+        fflags["FFlagDebugSkyGray"] = true;
+    }
 
-    if (m_settings.lowMeshes) {
+    // 8. ЧИТ-ФУНКЦИЯ: Упрощение стен и объектов / X-Ray LOD (позволяет легче видеть сквозь сложные декорации)
+    if (m_settings.lowMeshes || m_settings.showHitboxes) {
         fflags["DFIntCSGLevelOfDetailSwitchingDistance"] = 0;
         fflags["DFIntCSGLevelOfDetailSwitchingDistanceL12"] = 0;
         fflags["DFIntCSGLevelOfDetailSwitchingDistanceL23"] = 0;
         fflags["DFIntCSGLevelOfDetailSwitchingDistanceL34"] = 0;
+        fflags["FIntBootstrapperTelemetryReporting HundredthsPercent"] = 0;
     }
 
     if (m_settings.lowRamFflags) {
@@ -317,14 +353,33 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["DFIntTextureCompositorActiveJobs"] = 1;
     }
 
-    if (m_settings.camZoom == CameraZoomMode::Medium500) {
-        fflags["FIntCameraMaxZoomDistance"] = 500;
-    } else if (m_settings.camZoom == CameraZoomMode::Far2000) {
-        fflags["FIntCameraMaxZoomDistance"] = 2000;
-    } else if (m_settings.camZoom == CameraZoomMode::Cosmic9999) {
-        fflags["FIntCameraMaxZoomDistance"] = 9999;
+    // 9. ЧИТ-ФУНКЦИЯ: Бесконечный Зум Камеры (Zoom Unlocker + FarZPlane)
+    if (m_settings.unlockInfiniteZoom) {
+        fflags["FIntCameraMaxZoomDistance"] = m_settings.customMaxZoom;
+        fflags["DFIntCameraMaxZoomDistance"] = m_settings.customMaxZoom;
     }
 
+    // 10. ЧИТ-ФУНКЦИЯ: Просвет преград камеры и убирание куллинга (PopperCam / Culling Bypass)
+    if (m_settings.noclipCamWalls) {
+        fflags["DFIntCullFactorPixelThresholdMainViewHighQuality"] = 10000;
+        fflags["DFIntCullFactorPixelThresholdMainViewLowQuality"] = 10000;
+    }
+
+    // 11. ЧИТ-ФУНКЦИЯ: Физика для Wallhop / High-Jump / Speed-Glitch
+    if (m_settings.wallhopPhysics) {
+        fflags["DFIntS2PhysicsSenderRate"] = 38760;
+        fflags["DFIntMaxMissedWorldStepsRemembered"] = 1000;
+    }
+
+    // 12. ЧИТ-ФУНКЦИЯ: Полное удаление 3D-травы и листвы (Clear Map)
+    if (m_settings.clearFog) {
+        fflags["FIntFRMMinGrassDistance"] = 0;
+        fflags["FIntFRMMaxGrassDistance"] = 0;
+        fflags["FIntRenderGrassDetailStrands"] = 0;
+        fflags["FIntGrassMovementReducedMotionFactor"] = 0;
+    }
+
+    // 13. Сетевой профиль пакетов (HitReg Low Ping)
     if (m_settings.netProfile == NetworkProfile::UltraLowPing) {
         fflags["DFIntConnectionMTUSize"] = 1396;
         fflags["FIntRakNetResendBufferArrayLength"] = 128;
@@ -332,13 +387,9 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["DFIntConnectionMTUSize"] = 1492;
     }
 
+    // 14. Счётчик FPS на экране
     if (m_settings.showHudFps) {
         fflags["FFlagDebugDisplayFPS"] = true;
-    }
-    if (m_settings.clearFog) {
-        fflags["FIntFRMMinGrassDistance"] = 0;
-        fflags["FIntFRMMaxGrassDistance"] = 0;
-        fflags["FIntRenderGrassDetailStrands"] = 0;
     }
 
     int threads = std::max(2, QThread::idealThreadCount());
@@ -356,41 +407,6 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["FFlagDebugDisableTelemetryV2Stat"] = true;
     }
 
-
-    // Реально работающие в Sober модификации видимости и рендера:
-    if (m_settings.unlockInfiniteZoom) {
-        // Работает на картах со стандартной камерой (где скрипт плейса не перезаписывает лимит каждый кадр)
-        fflags["FIntCameraMaxZoomDistance"] = m_settings.customMaxZoom;
-    }
-    if (m_settings.fullBright) {
-        // Высветление тёмных углов: принудительный Voxel-рендер + отключение теней и PostFX
-        fflags["DFFlagDebugRenderForceTechnologyVoxel"] = true;
-        fflags["FFlagDebugForceFutureIsBrightPhase2"] = false;
-        fflags["FFlagDebugForceFutureIsBrightPhase3"] = false;
-        fflags["FIntRenderShadowIntensity"] = 0;
-        fflags["DFIntCullFactorPixelThresholdShadowMapHighQuality"] = 2147483647;
-        fflags["DFIntCullFactorPixelThresholdShadowMapLowQuality"] = 2147483647;
-        fflags["FFlagDisablePostFx"] = true;
-    }
-    if (m_settings.clearFog) {
-        // Полное удаление 3D-травы на ландшафте для чистого обзора
-        fflags["FIntFRMMinGrassDistance"] = 0;
-        fflags["FIntFRMMaxGrassDistance"] = 0;
-        fflags["FIntRenderGrassDetailStrands"] = 0;
-    }
-    if (m_settings.lowMeshes || m_settings.showHitboxes) {
-        // Упрощение геометрии объектов (LOD) и отключение лишних деталей
-        fflags["DFIntCSGLevelOfDetailSwitchingDistance"] = 0;
-        fflags["DFIntCSGLevelOfDetailSwitchingDistanceL12"] = 0;
-        fflags["DFIntCSGLevelOfDetailSwitchingDistanceL23"] = 0;
-        fflags["DFIntCSGLevelOfDetailSwitchingDistanceL34"] = 0;
-    }
-    if (m_settings.showHudFps) {
-        fflags["FFlagDebugDisplayFPS"] = true;
-    }
-
-
-    QJsonObject soberCfg;
     soberCfg["bring_back_oof"] = m_settings.bringBackOof;
     soberCfg["discord_rpc_enabled"] = m_settings.discordRpc;
     soberCfg["enable_gamemode"] = m_settings.enableGamemode;
@@ -401,13 +417,24 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
     soberCfg["graphics_optimization_mode"] = m_settings.optMode;
     soberCfg["fflags"] = fflags;
 
-    QString cfgDir = soberBaseDir() + "/config/sober";
-    QDir().mkpath(cfgDir);
-    QFile cf(cfgDir + "/config.json");
+    QByteArray jsonBytes = QJsonDocument(soberCfg).toJson(QJsonDocument::Indented);
+
+    // Записываем атомарно в config.json Sober
+    QSaveFile cf(cfgPath);
     if (cf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        cf.write(QJsonDocument(soberCfg).toJson(QJsonDocument::Indented));
-        cf.close();
+        cf.write(jsonBytes);
+        cf.commit();
     }
+
+    // Дополнительно дублируем в ClientAppSettings.json (для сборок Roblox/Wine/Sober, читающих напрямую из ClientSettings)
+    QString clientSettingsDir = soberBaseDir() + "/data/sober/appData/ClientSettings";
+    QDir().mkpath(clientSettingsDir);
+    QSaveFile csf(clientSettingsDir + "/ClientAppSettings.json");
+    if (csf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        csf.write(QJsonDocument(fflags).toJson(QJsonDocument::Indented));
+        csf.commit();
+    }
+
     return true;
 }
 

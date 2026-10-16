@@ -172,16 +172,13 @@ void SoberController::launchRoblox(const QString &customUri) {
         m_gameProc->start("flatpak", args);
     };
 
-    if (isGameRunning()) {
-        auto *killProc = new QProcess(this);
-        connect(killProc, &QProcess::finished, this, [killProc, startClient](int, QProcess::ExitStatus) {
-            killProc->deleteLater();
-            startClient();
-        });
-        killProc->start("flatpak", {"kill", "org.vinegarhq.Sober"});
-    } else {
-        startClient();
-    }
+    // ВСЕГДА завершаем старый фоновый процесс Sober перед стартом, чтобы он гарантированно перечитал новый config.json!
+    auto *killProc = new QProcess(this);
+    connect(killProc, &QProcess::finished, this, [killProc, startClient](int, QProcess::ExitStatus) {
+        killProc->deleteLater();
+        QTimer::singleShot(180, startClient);
+    });
+    killProc->start("flatpak", {"kill", "org.vinegarhq.Sober"});
 }
 
 void SoberController::stopRobloxAsync() {

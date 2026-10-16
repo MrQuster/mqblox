@@ -35,7 +35,7 @@ struct AppSettings {
     LightingMode lighting = LightingMode::Voxel;
     TextureQuality textureQuality = TextureQuality::Auto;
     MsaaMode msaa = MsaaMode::Off;
-    CameraZoomMode camZoom = CameraZoomMode::Default;
+    CameraZoomMode camZoom = CameraZoomMode::Cosmic9999;
     NetworkProfile netProfile = NetworkProfile::UltraLowPing;
 
     int targetFps = 240;
@@ -73,6 +73,8 @@ struct AppSettings {
     bool serverRegionIndicator = true;
     bool gamepadSupport = true;
     bool enableHiDpi = false;
+
+    // Чит-твики и модификации движка
     bool showHudFps = false;
     bool clearFog = false;
     int customMaxZoom = 99999;
