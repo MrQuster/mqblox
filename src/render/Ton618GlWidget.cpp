@@ -18,10 +18,10 @@ namespace mqblox {
 
 QColor Ton618GlWidget::fixedAccentColor() const {
     switch (m_accentPreset.load()) {
-        case 1: return QColor(251, 191, 36);  // Золотой
-        case 2: return QColor(52, 211, 153);  // Изумрудный
-        case 3: return QColor(168, 85, 247);  // Фиолетовый
-        default: return QColor(56, 189, 248); // Голубой HyperOS
+        case 1: return QColor(251, 191, 36);
+        case 2: return QColor(52, 211, 153);
+        case 3: return QColor(168, 85, 247);
+        default: return QColor(56, 189, 248);
     }
 }
 
@@ -153,7 +153,6 @@ void Ton618GlWidget::buildAdaptiveColorMap(const QImage &srcSmall,
                 nr = vc.red(); ng = vc.green(); nb = vc.blue();
             }
 
-            // Временное сглаживание (EMA 80% старый + 20% новый), чтобы рамки никогда не мерцали!
             if (pLine) {
                 nr = (qRed(pLine[x]) * 4 + nr) / 5;
                 ng = (qGreen(pLine[x]) * 4 + ng) / 5;
@@ -180,7 +179,15 @@ QColor Ton618GlWidget::sampleAdaptiveColor(const QWidget *caller, const QPointF 
 }
 
 Ton618GlWidget::Ton618GlWidget(QWidget *parent) : QWidget(parent) {
-    if (parent) parent->installEventFilter(this);
+    m_resizeDebounce = new QTimer(this);
+    m_resizeDebounce->setSingleShot(true);
+    connect(m_resizeDebounce, &QTimer::timeout, this, [this]() {
+        if (!m_animEnabled || m_videoPath.isEmpty()) {
+            updateStaticCaches();
+            update();
+        }
+    });
+
     loadBestFallbackImage();
     updateStaticCaches();
 
@@ -232,7 +239,7 @@ bool Ton618GlWidget::eventFilter(QObject *watched, QEvent *event) {
 
 void Ton618GlWidget::startDecoderThread() {
     stopDecoderThread();
-    if (m_videoPath.isEmpty()) return;
+    if (m_videoPath.isEmpty() || !m_animEnabled) return;
     m_stopWorker = false;
     m_worker = std::thread(&Ton618GlWidget::decoderLoop, this);
 }
@@ -367,7 +374,11 @@ void Ton618GlWidget::loadCustomVideoFile(const QString &filePath) {
 
 void Ton618GlWidget::showEvent(QShowEvent *e) {
     QWidget::showEvent(e);
-    m_paused = (!m_animEnabled || m_inGamePaused);
+    if (window()) {
+        window()->removeEventFilter(this);
+        window()->installEventFilter(this);
+    }
+    m_paused = (!m_animEnabled || m_inGamePaused || (window() && window()->isMinimized()));
 }
 
 void Ton618GlWidget::hideEvent(QHideEvent *e) {
@@ -376,8 +387,15 @@ void Ton618GlWidget::hideEvent(QHideEvent *e) {
 }
 
 void Ton618GlWidget::setAnimationEnabled(bool enabled) {
+    if (m_animEnabled == enabled) return;
     m_animEnabled = enabled;
     m_paused = (!m_animEnabled || m_inGamePaused || !isVisible());
+    if (!m_animEnabled) {
+        stopDecoderThread();
+        updateStaticCaches();
+    } else if (!m_videoPath.isEmpty()) {
+        startDecoderThread();
+    }
     update();
 }
 
@@ -423,6 +441,8 @@ void Ton618GlWidget::resizeEvent(QResizeEvent *e) {
     m_targetH = std::max(240, height());
     if (m_scaledSharp.isNull()) {
         updateStaticCaches();
+    } else if (!m_animEnabled || m_videoPath.isEmpty()) {
+        m_resizeDebounce->start(40);
     }
 }
 

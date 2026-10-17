@@ -3,6 +3,7 @@
 #include <QImage>
 #include <QPixmap>
 #include <QPointF>
+#include <QTimer>
 #include <QWidget>
 #include <atomic>
 #include <mutex>
@@ -21,7 +22,6 @@ public:
     void setWebTabActive(bool webActive);
     void loadCustomVideoFile(const QString &filePath);
 
-    // Настройки внешнего вида Liquid Glass v34.0
     void configureVisuals(int blurStrength,
                           int glassOpacityPct,
                           int borderBrightnessPct,
@@ -81,6 +81,7 @@ private:
     std::mutex m_pathMutex;
     QString m_videoPath;
 
+    QTimer *m_resizeDebounce = nullptr;
     QImage m_fallbackImg;
     QImage m_colorMap;
     QColor m_ambientPrimary{251, 191, 36};

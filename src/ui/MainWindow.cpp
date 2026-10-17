@@ -1231,23 +1231,34 @@ void MainWindow::refreshGitUpdateStatus() {
 
 void MainWindow::filterSettingsBySearch(const QString &query) {
     QString q = query.trimmed();
-    QWidget *page = m_pages->currentWidget();
-    if (!page) return;
-    for (QFrame *card : page->findChildren<QFrame *>("GlassCard")) {
-        if (q.isEmpty()) {
-            card->setVisible(true);
-            continue;
-        }
-        bool match = false;
-        for (QLabel *l : card->findChildren<QLabel *>()) {
-            if (l->text().contains(q, Qt::CaseInsensitive)) { match = true; break; }
-        }
-        if (!match) {
-            for (QCheckBox *c : card->findChildren<QCheckBox *>()) {
-                if (c->text().contains(q, Qt::CaseInsensitive)) { match = true; break; }
+    int firstMatchedTab = -1;
+    for (int i = 1; i < m_pages->count(); ++i) {
+        QWidget *page = m_pages->widget(i);
+        if (!page) continue;
+        bool pageHasMatch = false;
+        for (QFrame *card : page->findChildren<QFrame *>("GlassCard")) {
+            if (q.isEmpty()) {
+                card->setVisible(true);
+                continue;
             }
+            bool match = false;
+            for (QLabel *l : card->findChildren<QLabel *>()) {
+                if (l->text().contains(q, Qt::CaseInsensitive)) { match = true; break; }
+            }
+            if (!match) {
+                for (QCheckBox *c : card->findChildren<QCheckBox *>()) {
+                    if (c->text().contains(q, Qt::CaseInsensitive)) { match = true; break; }
+                }
+            }
+            card->setVisible(match);
+            if (match) pageHasMatch = true;
         }
-        card->setVisible(match);
+        if (pageHasMatch && firstMatchedTab == -1) {
+            firstMatchedTab = i;
+        }
+    }
+    if (!q.isEmpty() && firstMatchedTab != -1 && m_pages->currentIndex() != firstMatchedTab) {
+        switchTab(firstMatchedTab);
     }
 }
 
@@ -1255,25 +1266,38 @@ void MainWindow::resetCurrentCategoryToDefaults() {
     AppSettings def;
     AppSettings &s = m_settingsMgr.settings();
     int idx = m_pages->currentIndex();
-    if (idx == 2) { // Система и Внешний вид
+    if (idx == 2) { // Система и Внешний вид (все списки и чекбоксы)
         s.resMode = def.resMode; s.gpuVendor = def.gpuVendor; s.cpuVendor = def.cpuVendor;
-        s.windowDriver = def.windowDriver; s.glassBlurStrength = def.glassBlurStrength;
-        s.glassOpacityPct = def.glassOpacityPct; s.borderBrightnessPct = def.borderBrightnessPct;
-        s.chameleonEnabled = def.chameleonEnabled; s.reducedMotion = def.reducedMotion;
-        s.videoFpsLimit = def.videoFpsLimit; s.accentPreset = def.accentPreset;
-    } else if (idx == 3) { // Графика
+        s.windowDriver = def.windowDriver;
+        s.returnToMqBloxOnLeave = def.returnToMqBloxOnLeave; s.pauseWebInGame = def.pauseWebInGame;
+        s.animBg = def.animBg; s.closeToTray = def.closeToTray; s.glThread = def.glThread;
+        s.asyncShaders = def.asyncShaders; s.vsyncOff = def.vsyncOff; s.pipewireBuffer = def.pipewireBuffer;
+        s.mallocTrim = def.mallocTrim; s.smartAutoCleanCache = def.smartAutoCleanCache;
+        s.lowRamFflags = def.lowRamFflags; s.disableTelemetry = def.disableTelemetry;
+        s.enableGamemode = def.enableGamemode; s.autoLaunchFromBrowser = def.autoLaunchFromBrowser;
+        s.autoReconnectOnCrash = def.autoReconnectOnCrash; s.hideSoberDesktop = def.hideSoberDesktop;
+        s.glassBlurStrength = def.glassBlurStrength; s.glassOpacityPct = def.glassOpacityPct;
+        s.borderBrightnessPct = def.borderBrightnessPct; s.chameleonEnabled = def.chameleonEnabled;
+        s.reducedMotion = def.reducedMotion; s.videoFpsLimit = def.videoFpsLimit;
+        s.accentPreset = def.accentPreset;
+    } else if (idx == 3) { // Графика (все списки, чекбоксы и редактор FFlags)
         s.graphicsApi = def.graphicsApi; s.optMode = def.optMode; s.lighting = def.lighting;
         s.textureQuality = def.textureQuality; s.msaa = def.msaa; s.targetFps = def.targetFps;
         s.unlimitedFps = def.unlimitedFps; s.frmQualityLevel = def.frmQualityLevel;
         s.noShadows = def.noShadows; s.ultraShadows = def.ultraShadows; s.noPostFx = def.noPostFx;
+        s.lowMeshes = def.lowMeshes; s.greySky = def.greySky; s.bringBackOof = def.bringBackOof;
+        s.discordRpc = def.discordRpc; s.serverRegionIndicator = def.serverRegionIndicator;
+        s.gamepadSupport = def.gamepadSupport; s.enableHiDpi = def.enableHiDpi;
+        s.customFflagsJson = def.customFflagsJson;
     } else if (idx == 4) { // Игровые твики
-        s.unlockInfiniteZoom = def.unlockInfiniteZoom; s.customMaxZoom = def.customMaxZoom;
-        s.fullBright = def.fullBright; s.clearFog = def.clearFog; s.showHitboxes = def.showHitboxes;
+        s.camZoom = def.camZoom; s.unlockInfiniteZoom = def.unlockInfiniteZoom;
+        s.customMaxZoom = def.customMaxZoom; s.fullBright = def.fullBright;
+        s.clearFog = def.clearFog; s.showHitboxes = def.showHitboxes;
         s.showHudFps = def.showHudFps; s.netProfile = def.netProfile;
     }
     syncUiFromSettings();
     saveSettingsNow(true);
-    enqueueToast(tr("↺ Параметры текущей вкладки сброшены к безопасным значениям по умолчанию!"));
+    enqueueToast(tr("↺ Все параметры текущей вкладки сброшены по умолчанию!"));
 }
 
 void MainWindow::syncUiFromSettings() {
@@ -1346,7 +1370,7 @@ void MainWindow::syncUiFromSettings() {
         int fIdx = m_comboVideoFps->findData(s.videoFpsLimit);
         m_comboVideoFps->setCurrentIndex(fIdx >= 0 ? fIdx : 0);
     }
-    if (m_comboAccent) m_comboAccent->setCurrentIndex(s.accentPreset);
+    if (m_comboAccent) { int aIdx = m_comboAccent->findData(s.accentPreset); m_comboAccent->setCurrentIndex(aIdx >= 0 ? aIdx : 0); }
 
     if (m_rootCosmos) {
         m_rootCosmos->setAnimationEnabled(s.animBg);

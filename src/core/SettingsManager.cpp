@@ -99,17 +99,18 @@ void SettingsManager::loadAll() {
     if (s.isEmpty()) return;
 
     m_settings.schemaVersion = 34;
-    m_settings.resMode = static_cast<ResolutionMode>(s.value("resMode").toInt(0));
-    m_settings.gpuVendor = static_cast<GpuVendorMode>(s.value("gpuVendor").toInt(0));
-    m_settings.cpuVendor = static_cast<CpuVendorMode>(s.value("cpuVendor").toInt(0));
-    m_settings.windowDriver = static_cast<WindowDriverMode>(s.value("windowDriver").toInt(0));
-    m_settings.graphicsApi = static_cast<GraphicsApi>(s.value("graphicsApi").toInt(1));
+    m_settings.resMode = static_cast<ResolutionMode>(std::clamp(s.value("resMode").toInt(0), 0, 3));
+    m_settings.gpuVendor = static_cast<GpuVendorMode>(std::clamp(s.value("gpuVendor").toInt(0), 0, 3));
+    m_settings.cpuVendor = static_cast<CpuVendorMode>(std::clamp(s.value("cpuVendor").toInt(0), 0, 2));
+    m_settings.windowDriver = static_cast<WindowDriverMode>(std::clamp(s.value("windowDriver").toInt(0), 0, 2));
+    m_settings.graphicsApi = static_cast<GraphicsApi>(std::clamp(s.value("graphicsApi").toInt(1), 0, 1));
     m_settings.optMode = s.value("optMode").toString("performance");
-    m_settings.lighting = static_cast<LightingMode>(s.value("lighting").toInt(0));
-    m_settings.textureQuality = static_cast<TextureQuality>(s.value("textureQuality").toInt(0));
-    m_settings.msaa = static_cast<MsaaMode>(s.value("msaa").toInt(0));
-    m_settings.camZoom = static_cast<CameraZoomMode>(s.value("camZoom").toInt(3));
-    m_settings.netProfile = static_cast<NetworkProfile>(s.value("netProfile").toInt(0));
+    if (m_settings.optMode.isEmpty()) m_settings.optMode = "performance";
+    m_settings.lighting = static_cast<LightingMode>(std::clamp(s.value("lighting").toInt(0), 0, 3));
+    m_settings.textureQuality = static_cast<TextureQuality>(std::clamp(s.value("textureQuality").toInt(0), 0, 4));
+    m_settings.msaa = static_cast<MsaaMode>(std::clamp(s.value("msaa").toInt(0), 0, 3));
+    m_settings.camZoom = static_cast<CameraZoomMode>(std::clamp(s.value("camZoom").toInt(3), 0, 3));
+    m_settings.netProfile = static_cast<NetworkProfile>(std::clamp(s.value("netProfile").toInt(0), 0, 1));
 
     m_settings.targetFps = std::clamp(s.value("targetFps").toInt(240), 30, 9999);
     m_settings.unlimitedFps = s.value("unlimitedFps").toBool(false);
@@ -148,10 +149,11 @@ void SettingsManager::loadAll() {
     m_settings.clearFog = s.value("clearFog").toBool(false);
     m_settings.customMaxZoom = std::clamp(s.value("customMaxZoom").toInt(99999), 128, 100000);
     m_settings.unlockInfiniteZoom = s.value("unlockInfiniteZoom").toBool(true);
-    m_settings.noclipCamWalls = s.value("noclipCamWalls").toBool(false);
+    // Принудительно отключаем заблокированные фильтром Sober флаги
+    m_settings.noclipCamWalls = false;
+    m_settings.wallhopPhysics = false;
     m_settings.fullBright = s.value("fullBright").toBool(false);
     m_settings.showHitboxes = s.value("showHitboxes").toBool(false);
-    m_settings.wallhopPhysics = s.value("wallhopPhysics").toBool(false);
 
     m_settings.glassBlurStrength = std::clamp(s.value("glassBlurStrength").toInt(4), 1, 8);
     m_settings.glassOpacityPct = std::clamp(s.value("glassOpacityPct").toInt(10), 4, 40);
@@ -232,10 +234,10 @@ bool SettingsManager::saveAll(QString *errMsg) {
     s["clearFog"] = m_settings.clearFog;
     s["customMaxZoom"] = m_settings.customMaxZoom;
     s["unlockInfiniteZoom"] = m_settings.unlockInfiniteZoom;
-    s["noclipCamWalls"] = m_settings.noclipCamWalls;
+    s["noclipCamWalls"] = false;
     s["fullBright"] = m_settings.fullBright;
     s["showHitboxes"] = m_settings.showHitboxes;
-    s["wallhopPhysics"] = m_settings.wallhopPhysics;
+    s["wallhopPhysics"] = false;
 
     s["glassBlurStrength"] = m_settings.glassBlurStrength;
     s["glassOpacityPct"] = m_settings.glassOpacityPct;
@@ -296,12 +298,12 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
     QString cfgPath = cfgDir + "/config.json";
     QString bakPath = cfgDir + "/config.json.mqblox.bak";
 
-    // Создаём резервную копию оригинального config.json перед первой модификацией
     if (QFileInfo::exists(cfgPath) && !QFileInfo::exists(bakPath)) {
         QFile::copy(cfgPath, bakPath);
     }
 
     QJsonObject soberCfg;
+    QJsonObject existingFflags;
     {
         QFile oldF(cfgPath);
         if (oldF.open(QIODevice::ReadOnly)) {
@@ -309,13 +311,49 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
             QJsonDocument oldDoc = QJsonDocument::fromJson(oldF.readAll(), &oldErr);
             if (oldErr.error == QJsonParseError::NoError && oldDoc.isObject()) {
                 soberCfg = oldDoc.object();
+                existingFflags = soberCfg.value("fflags").toObject();
             }
             oldF.close();
         }
     }
 
-    // Пользовательские FFlags из редактора имеют базовый приоритет, поверх которых записываются переключатели UI
-    QJsonObject fflags = customDoc.object();
+    // Удаляем из существующих fflags только те ключи, которыми управляет MqBlox,
+    // чтобы сторонние ключи пользователя сохранились, а выключенные в UI — чисто удалялись
+    static const QStringList kManagedKeys = {
+        "DFIntTaskSchedulerTargetFps", "FFlagTaskSchedulerLimitTargetFpsTo2402",
+        "FFlagGameBasicSettingsFramerateCap5", "FFlagDebugGraphicsPreferVulkan",
+        "FFlagDebugGraphicsDisableOpenGL", "FFlagDebugGraphicsPreferOpenGL",
+        "DFFlagDebugRenderForceTechnologyVoxel", "FFlagDebugForceFutureIsBrightPhase2",
+        "FFlagDebugForceFutureIsBrightPhase3", "DFFlagTextureQualityOverrideEnabled",
+        "DFIntTextureQualityOverride", "FIntDebugForceMSAASamples",
+        "DFIntDebugFRMQualityLevelOverride", "FIntRomarkStartWithGraphicQualityLevel",
+        "FIntRenderShadowIntensity", "DFIntCullFactorPixelThresholdShadowMapHighQuality",
+        "DFIntCullFactorPixelThresholdShadowMapLowQuality", "FIntRenderShadowMapBias",
+        "FFlagDisablePostFx", "FFlagDebugSkyGray", "DFIntCSGLevelOfDetailSwitchingDistance",
+        "DFIntCSGLevelOfDetailSwitchingDistanceL12", "DFIntCSGLevelOfDetailSwitchingDistanceL23",
+        "DFIntCSGLevelOfDetailSwitchingDistanceL34", "DFIntHttpCacheCleanMinFilesRequired",
+        "FIntRenderLocalLightUpdatesMax", "DFIntTextureCompositorActiveJobs",
+        "FIntCameraMaxZoomDistance", "DFIntCameraMaxZoomDistance", "FIntCameraFarZPlane",
+        "FIntPoppercamPassthrough", "DFIntCullFactorPixelThresholdMainViewHighQuality",
+        "DFIntCullFactorPixelThresholdMainViewLowQuality", "FFlagDebugRenderingSetDeterministic",
+        "DFIntS2PhysicsSenderRate", "DFIntMaxMissedWorldStepsRemembered",
+        "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance", "FIntRenderGrassDetailStrands",
+        "FIntGrassMovementReducedMotionFactor", "DFIntConnectionMTUSize",
+        "FIntRakNetResendBufferArrayLength", "FFlagDebugDisplayFPS", "DFIntRuntimeConcurrency",
+        "FFlagDebugDisableTelemetryEphemeralCounter", "FFlagDebugDisableTelemetryEphemeralStat",
+        "FFlagDebugDisableTelemetryEventIngest", "FFlagDebugDisableTelemetryPoint",
+        "FFlagDebugDisableTelemetryV2Counter", "FFlagDebugDisableTelemetryV2Event",
+        "FFlagDebugDisableTelemetryV2Stat"
+    };
+    for (const QString &k : kManagedKeys) {
+        existingFflags.remove(k);
+    }
+
+    QJsonObject fflags = existingFflags;
+    const QJsonObject userCustomObj = customDoc.object();
+    for (auto it = userCustomObj.begin(); it != userCustomObj.end(); ++it) {
+        fflags[it.key()] = it.value();
+    }
 
     int fpsVal = m_settings.unlimitedFps ? 9999 : m_settings.targetFps;
     fflags["DFIntTaskSchedulerTargetFps"] = fpsVal;
@@ -388,8 +426,15 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["DFIntTextureCompositorActiveJobs"] = 1;
     }
 
+    // Учитываем как произвольный спинбокс зума, так и выбранный пресет m_comboCamZoom
     if (m_settings.unlockInfiniteZoom) {
         fflags["FIntCameraMaxZoomDistance"] = m_settings.customMaxZoom;
+    } else if (m_settings.camZoom != CameraZoomMode::Default) {
+        int presetZoom = 128;
+        if (m_settings.camZoom == CameraZoomMode::Medium500) presetZoom = 500;
+        else if (m_settings.camZoom == CameraZoomMode::Far2000) presetZoom = 2000;
+        else if (m_settings.camZoom == CameraZoomMode::Cosmic9999) presetZoom = 99999;
+        fflags["FIntCameraMaxZoomDistance"] = presetZoom;
     }
 
     if (m_settings.clearFog) {
