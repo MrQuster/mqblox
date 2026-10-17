@@ -1,3 +1,4 @@
+#include "core/SettingsRegistry.hpp"
 #include "core/SettingsManager.hpp"
 #include <QDir>
 #include <QFile>
@@ -65,10 +66,14 @@ QString SettingsManager::parsePlaceUri(const QString &input) {
 }
 
 void SettingsManager::loadAll() {
+    QString cfgV35 = QDir::homePath() + "/.config/mqblox/settings_v35.json";
     QString cfgV34 = QDir::homePath() + "/.config/mqblox/settings_v34.json";
     QString legacyV13 = mqDir() + "/settings_v13.json";
 
-    QString loadPath = QFileInfo::exists(cfgV34) ? cfgV34 : legacyV13;
+    QString loadPath = legacyV13;
+    if (QFileInfo::exists(cfgV35)) loadPath = cfgV35;
+    else if (QFileInfo::exists(cfgV34)) loadPath = cfgV34;
+
     QFile f(loadPath);
     if (!f.open(QIODevice::ReadOnly)) return;
 
@@ -96,75 +101,9 @@ void SettingsManager::loadAll() {
     }
 
     QJsonObject s = root.value("settings").toObject();
-    if (s.isEmpty()) return;
-
-    m_settings.schemaVersion = 34;
-    m_settings.resMode = static_cast<ResolutionMode>(std::clamp(s.value("resMode").toInt(0), 0, 3));
-    m_settings.gpuVendor = static_cast<GpuVendorMode>(std::clamp(s.value("gpuVendor").toInt(0), 0, 3));
-    m_settings.cpuVendor = static_cast<CpuVendorMode>(std::clamp(s.value("cpuVendor").toInt(0), 0, 2));
-    m_settings.windowDriver = static_cast<WindowDriverMode>(std::clamp(s.value("windowDriver").toInt(0), 0, 2));
-    m_settings.graphicsApi = static_cast<GraphicsApi>(std::clamp(s.value("graphicsApi").toInt(1), 0, 1));
-    m_settings.optMode = s.value("optMode").toString("performance");
-    if (m_settings.optMode.isEmpty()) m_settings.optMode = "performance";
-    m_settings.lighting = static_cast<LightingMode>(std::clamp(s.value("lighting").toInt(0), 0, 3));
-    m_settings.textureQuality = static_cast<TextureQuality>(std::clamp(s.value("textureQuality").toInt(0), 0, 4));
-    m_settings.msaa = static_cast<MsaaMode>(std::clamp(s.value("msaa").toInt(0), 0, 3));
-    m_settings.camZoom = static_cast<CameraZoomMode>(std::clamp(s.value("camZoom").toInt(3), 0, 3));
-    m_settings.netProfile = static_cast<NetworkProfile>(std::clamp(s.value("netProfile").toInt(0), 0, 1));
-
-    m_settings.targetFps = std::clamp(s.value("targetFps").toInt(240), 30, 9999);
-    m_settings.unlimitedFps = s.value("unlimitedFps").toBool(false);
-    m_settings.frmQualityLevel = std::clamp(s.value("frmQualityLevel").toInt(0), 0, 21);
-
-    m_settings.returnToMqBloxOnLeave = s.value("returnToMqBloxOnLeave").toBool(true);
-    m_settings.pauseWebInGame = s.value("pauseWebInGame").toBool(true);
-    m_settings.animBg = s.value("animBg").toBool(true);
-    m_settings.closeToTray = s.value("closeToTray").toBool(true);
-    m_settings.glThread = s.value("glThread").toBool(true);
-    m_settings.asyncShaders = s.value("asyncShaders").toBool(true);
-    m_settings.vsyncOff = s.value("vsyncOff").toBool(true);
-    m_settings.pipewireBuffer = s.value("pipewireBuffer").toBool(true);
-    m_settings.mallocTrim = s.value("mallocTrim").toBool(true);
-    m_settings.smartAutoCleanCache = s.value("smartAutoCleanCache").toBool(true);
-    m_settings.lowRamFflags = s.value("lowRamFflags").toBool(false);
-    m_settings.disableTelemetry = s.value("disableTelemetry").toBool(true);
-    m_settings.enableGamemode = s.value("enableGamemode").toBool(true);
-    m_settings.autoLaunchFromBrowser = s.value("autoLaunchFromBrowser").toBool(true);
-    m_settings.autoReconnectOnCrash = s.value("autoReconnectOnCrash").toBool(false);
-    m_settings.hideSoberDesktop = s.value("hideSoberDesktop").toBool(false);
-    m_settings.sidebarPinned = s.value("sidebarPinned").toBool(true);
-
-    m_settings.noShadows = s.value("noShadows").toBool(false);
-    m_settings.ultraShadows = s.value("ultraShadows").toBool(false);
-    m_settings.noPostFx = s.value("noPostFx").toBool(false);
-    m_settings.lowMeshes = s.value("lowMeshes").toBool(false);
-    m_settings.greySky = s.value("greySky").toBool(false);
-    m_settings.bringBackOof = s.value("bringBackOof").toBool(true);
-    m_settings.discordRpc = s.value("discordRpc").toBool(true);
-    m_settings.serverRegionIndicator = s.value("serverRegionIndicator").toBool(true);
-    m_settings.gamepadSupport = s.value("gamepadSupport").toBool(true);
-    m_settings.enableHiDpi = s.value("enableHiDpi").toBool(false);
-
-    m_settings.showHudFps = s.value("showHudFps").toBool(false);
-    m_settings.clearFog = s.value("clearFog").toBool(false);
-    m_settings.customMaxZoom = std::clamp(s.value("customMaxZoom").toInt(99999), 128, 100000);
-    m_settings.unlockInfiniteZoom = s.value("unlockInfiniteZoom").toBool(true);
-    // Принудительно отключаем заблокированные фильтром Sober флаги
-    m_settings.noclipCamWalls = false;
-    m_settings.wallhopPhysics = false;
-    m_settings.fullBright = s.value("fullBright").toBool(false);
-    m_settings.showHitboxes = s.value("showHitboxes").toBool(false);
-
-    m_settings.glassBlurStrength = std::clamp(s.value("glassBlurStrength").toInt(4), 1, 8);
-    m_settings.glassOpacityPct = std::clamp(s.value("glassOpacityPct").toInt(10), 4, 40);
-    m_settings.borderBrightnessPct = std::clamp(s.value("borderBrightnessPct").toInt(100), 30, 150);
-    m_settings.chameleonEnabled = s.value("chameleonEnabled").toBool(true);
-    m_settings.reducedMotion = s.value("reducedMotion").toBool(false);
-    m_settings.videoFpsLimit = std::clamp(s.value("videoFpsLimit").toInt(30), 15, 60);
-    m_settings.accentPreset = std::clamp(s.value("accentPreset").toInt(0), 0, 3);
-
-    m_settings.lastPlaceInput = s.value("lastPlaceInput").toString();
-    m_settings.customFflagsJson = s.value("customFflagsJson").toString("{}");
+    if (!s.isEmpty()) {
+        SettingsRegistry::readFromJson(m_settings, s);
+    }
 }
 
 bool SettingsManager::saveAll(QString *errMsg) {
@@ -183,72 +122,7 @@ bool SettingsManager::saveAll(QString *errMsg) {
         QFile::remove(soberDesk);
     }
 
-    QJsonObject s;
-    s["schemaVersion"] = 34;
-    s["resMode"] = static_cast<int>(m_settings.resMode);
-    s["gpuVendor"] = static_cast<int>(m_settings.gpuVendor);
-    s["cpuVendor"] = static_cast<int>(m_settings.cpuVendor);
-    s["windowDriver"] = static_cast<int>(m_settings.windowDriver);
-    s["graphicsApi"] = static_cast<int>(m_settings.graphicsApi);
-    s["optMode"] = m_settings.optMode;
-    s["lighting"] = static_cast<int>(m_settings.lighting);
-    s["textureQuality"] = static_cast<int>(m_settings.textureQuality);
-    s["msaa"] = static_cast<int>(m_settings.msaa);
-    s["camZoom"] = static_cast<int>(m_settings.camZoom);
-    s["netProfile"] = static_cast<int>(m_settings.netProfile);
-
-    s["targetFps"] = m_settings.targetFps;
-    s["unlimitedFps"] = m_settings.unlimitedFps;
-    s["frmQualityLevel"] = m_settings.frmQualityLevel;
-
-    s["returnToMqBloxOnLeave"] = m_settings.returnToMqBloxOnLeave;
-    s["pauseWebInGame"] = m_settings.pauseWebInGame;
-    s["animBg"] = m_settings.animBg;
-    s["closeToTray"] = m_settings.closeToTray;
-    s["glThread"] = m_settings.glThread;
-    s["asyncShaders"] = m_settings.asyncShaders;
-    s["vsyncOff"] = m_settings.vsyncOff;
-    s["pipewireBuffer"] = m_settings.pipewireBuffer;
-    s["mallocTrim"] = m_settings.mallocTrim;
-    s["smartAutoCleanCache"] = m_settings.smartAutoCleanCache;
-    s["lowRamFflags"] = m_settings.lowRamFflags;
-    s["disableTelemetry"] = m_settings.disableTelemetry;
-    s["enableGamemode"] = m_settings.enableGamemode;
-    s["autoLaunchFromBrowser"] = m_settings.autoLaunchFromBrowser;
-    s["autoReconnectOnCrash"] = m_settings.autoReconnectOnCrash;
-    s["hideSoberDesktop"] = m_settings.hideSoberDesktop;
-    s["sidebarPinned"] = m_settings.sidebarPinned;
-
-    s["noShadows"] = m_settings.noShadows;
-    s["ultraShadows"] = m_settings.ultraShadows;
-    s["noPostFx"] = m_settings.noPostFx;
-    s["lowMeshes"] = m_settings.lowMeshes;
-    s["greySky"] = m_settings.greySky;
-    s["bringBackOof"] = m_settings.bringBackOof;
-    s["discordRpc"] = m_settings.discordRpc;
-    s["serverRegionIndicator"] = m_settings.serverRegionIndicator;
-    s["gamepadSupport"] = m_settings.gamepadSupport;
-    s["enableHiDpi"] = m_settings.enableHiDpi;
-
-    s["showHudFps"] = m_settings.showHudFps;
-    s["clearFog"] = m_settings.clearFog;
-    s["customMaxZoom"] = m_settings.customMaxZoom;
-    s["unlockInfiniteZoom"] = m_settings.unlockInfiniteZoom;
-    s["noclipCamWalls"] = false;
-    s["fullBright"] = m_settings.fullBright;
-    s["showHitboxes"] = m_settings.showHitboxes;
-    s["wallhopPhysics"] = false;
-
-    s["glassBlurStrength"] = m_settings.glassBlurStrength;
-    s["glassOpacityPct"] = m_settings.glassOpacityPct;
-    s["borderBrightnessPct"] = m_settings.borderBrightnessPct;
-    s["chameleonEnabled"] = m_settings.chameleonEnabled;
-    s["reducedMotion"] = m_settings.reducedMotion;
-    s["videoFpsLimit"] = m_settings.videoFpsLimit;
-    s["accentPreset"] = m_settings.accentPreset;
-
-    s["lastPlaceInput"] = m_settings.lastPlaceInput;
-    s["customFflagsJson"] = m_settings.customFflagsJson;
+    QJsonObject s = SettingsRegistry::writeToJson(m_settings);
 
     QJsonArray arr;
     for (const auto &acc : m_accounts) {
@@ -263,7 +137,7 @@ bool SettingsManager::saveAll(QString *errMsg) {
     }
 
     QJsonObject root;
-    root["schemaVersion"] = 34;
+    root["schemaVersion"] = 35;
     root["activeAccountId"] = m_activeAccountId;
     root["accounts"] = arr;
     root["settings"] = s;
@@ -272,7 +146,10 @@ bool SettingsManager::saveAll(QString *errMsg) {
 
     QString cfgDir = QDir::homePath() + "/.config/mqblox";
     QDir().mkpath(cfgDir);
-    for (const QString &target : {cfgDir + "/settings_v34.json", mqDir() + "/settings_v13.json"}) {
+    for (const QString &target : {
+             cfgDir + "/settings_v35.json",
+             cfgDir + "/settings_v34.json",
+             mqDir() + "/settings_v13.json"}) {
         QSaveFile f(target);
         if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             f.write(payload);

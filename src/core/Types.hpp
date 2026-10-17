@@ -5,6 +5,16 @@
 
 namespace mqblox {
 
+enum class SettingCategory {
+    General = 0,
+    System = 1,
+    Graphics = 2,
+    Tweaks = 3,
+    Appearance = 4,
+    Layout = 5,
+    Accessibility = 6
+};
+
 enum class ResolutionMode { Auto = 0, HD_720p = 1, FHD_1080p = 2, QHD_2K = 3 };
 enum class GpuVendorMode { Auto = 0, AMD = 1, Nvidia = 2, Intel = 3 };
 enum class CpuVendorMode { Auto = 0, Intel = 1, AMD = 2 };
@@ -26,7 +36,7 @@ struct AccountProfile {
 };
 
 struct AppSettings {
-    int schemaVersion = 34;
+    int schemaVersion = 35;
 
     ResolutionMode resMode = ResolutionMode::Auto;
     GpuVendorMode gpuVendor = GpuVendorMode::Auto;
@@ -76,7 +86,6 @@ struct AppSettings {
     bool gamepadSupport = true;
     bool enableHiDpi = false;
 
-    // Игровые твики
     bool showHudFps = false;
     bool clearFog = false;
     int customMaxZoom = 99999;
@@ -86,14 +95,63 @@ struct AppSettings {
     bool showHitboxes = false;
     bool wallhopPhysics = false;
 
-    // Настройки внешнего вида HyperOS 4 Liquid Glass (v34.0)
-    int glassBlurStrength = 4;     // 2 = Низкое, 4 = Среднее, 7 = Высокое
-    int glassOpacityPct = 10;      // Прозрачность подложки (4..35%)
-    int borderBrightnessPct = 100; // Яркость градиентной рамки 1px (40..150%)
-    bool chameleonEnabled = true;  // Адаптация цвета рамок под видеофон
-    bool reducedMotion = false;    // Режим «Меньше анимаций»
-    int videoFpsLimit = 30;        // 15, 24 или 30 FPS
-    int accentPreset = 0;          // 0=Голубой, 1=Золотой, 2=Изумрудный, 3=Фиолетовый
+    // 1. Стекло (Liquid Glass)
+    int glassBlurStrength = 4;
+    int glassOpacityPct = 10;
+    int borderThicknessPx = 10;
+    int borderBrightnessPct = 100;
+    int glassSaturationPct = 160;
+    int specularStrengthPct = 100;
+    int shadowStrengthPct = 100;
+    int cornerRadiusMode = 1;
+    int glassStyleMode = 0;
+
+    // 2. Цвета и Хамелеон
+    int themeMode = 0;
+    int accentPreset = 0;
+    QString customAccentHex = "#38BDF8";
+    bool chameleonEnabled = true;
+    int chameleonSpeedPct = 20;
+    int chameleonStrengthPct = 100;
+    int borderColorSource = 0;
+    int textColorMode = 0;
+
+    // 3. Фон
+    int backdropType = 0;
+    QString customBackdropPath;
+    int backdropDimPct = 0;
+    int videoFpsLimit = 30;
+    bool pauseOnFocusLoss = false;
+
+    // 4. Анимации
+    bool animationsEnabled = true;
+    int animSpeedPct = 100;
+    int animStyle = 1;
+    bool cursorGlowFollow = true;
+    bool reducedMotion = false;
+
+    // 5. Масштаб и текст
+    int uiScalePct = 100;
+    int fontSizePx = 13;
+    int fontBoldness = 0;
+    int uiDensity = 1;
+
+    // 6. Раскладка и окно
+    int sidebarPosition = 0;
+    int sidebarWidthPx = 210;
+    bool sidebarShowLabels = true;
+    bool rememberWindowSize = true;
+    int savedWindowWidth = 1120;
+    int savedWindowHeight = 700;
+    bool startMinimized = false;
+    bool alwaysOnTop = false;
+
+    // 7. Доступность и пресеты
+    bool highContrast = false;
+    bool reduceTransparency = false;
+    int effectsQuality = 2;
+    bool disableBlurLowGpu = false;
+    int visualPreset = 0;
 
     QString lastPlaceInput;
     QString customFflagsJson = "{}";

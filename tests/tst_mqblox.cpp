@@ -1,4 +1,5 @@
 #include "core/SettingsManager.hpp"
+#include "core/SettingsRegistry.hpp"
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -38,6 +39,34 @@ private slots:
         QCOMPARE(ff.value("DFIntTaskSchedulerTargetFps").toInt(), 360);
         QCOMPARE(ff.value("FIntRenderShadowIntensity").toInt(), 0);
         QCOMPARE(ff.value("FIntFRMMinGrassDistance").toInt(), 0);
+    }
+
+    void testRegistryClampingAndPresets() {
+        AppSettings s;
+        QJsonObject badJson;
+        badJson["targetFps"] = 999999;      // Выше максимума (9999)
+        badJson["glassOpacityPct"] = -100;  // Ниже минимума (2)
+        badJson["glassBlurStrength"] = 99;  // Выше максимума (8)
+        badJson["noclipCamWalls"] = true;   // Должно сбрасываться в false
+
+        SettingsRegistry::readFromJson(s, badJson);
+        QCOMPARE(s.targetFps, 9999);
+        QCOMPARE(s.glassOpacityPct, 2);
+        QCOMPARE(s.glassBlurStrength, 8);
+        QCOMPARE(s.noclipCamWalls, false);
+
+        // Сброс отдельного ключа
+        QVERIFY(SettingsRegistry::resetKey(s, "targetFps"));
+        QCOMPARE(s.targetFps, 240);
+
+        // Применение пресета «Высокий контраст» (3) и полный сброс оформления
+        SettingsRegistry::applyVisualPreset(s, 3);
+        QCOMPARE(s.highContrast, true);
+        QCOMPARE(s.reduceTransparency, true);
+
+        SettingsRegistry::resetVisualAppearance(s);
+        QCOMPARE(s.highContrast, false);
+        QCOMPARE(s.glassOpacityPct, 10);
     }
 };
 

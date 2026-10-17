@@ -184,6 +184,53 @@ private:
     DarkComboBox *m_comboAccent = nullptr;
     void filterSettingsBySearch(const QString &query);
     void resetCurrentCategoryToDefaults();
+    // Stage 3 Visual & Layout Controls (v34.5)
+    DarkComboBox *m_comboVisualPreset = nullptr;
+    ResettableSlider *m_sldBlur = nullptr;
+    ResettableSlider *m_sldOpacity = nullptr;
+    ResettableSlider *m_sldBorderThick = nullptr;
+    ResettableSlider *m_sldBorderBright = nullptr;
+    ResettableSlider *m_sldSaturation = nullptr;
+    ResettableSlider *m_sldSpecular = nullptr;
+    ResettableSlider *m_sldShadow = nullptr;
+    DarkComboBox *m_comboCornerRadius = nullptr;
+    DarkComboBox *m_comboGlassStyle = nullptr;
+
+    DarkComboBox *m_comboThemeMode = nullptr;
+    QLineEdit *m_inpCustomHex = nullptr;
+    ResettableSlider *m_sldChamSpeed = nullptr;
+    ResettableSlider *m_sldChamStrength = nullptr;
+    DarkComboBox *m_comboBorderSource = nullptr;
+    DarkComboBox *m_comboTextColor = nullptr;
+
+    DarkComboBox *m_comboBackdropType = nullptr;
+    ResettableSlider *m_sldBackdropDim = nullptr;
+    QCheckBox *m_chkPauseFocusLoss = nullptr;
+
+    QCheckBox *m_chkAnimEnabled = nullptr;
+    ResettableSlider *m_sldAnimSpeed = nullptr;
+    DarkComboBox *m_comboAnimStyle = nullptr;
+    QCheckBox *m_chkCursorGlow = nullptr;
+
+    ResettableSlider *m_sldUiScale = nullptr;
+    ResettableSlider *m_sldFontSize = nullptr;
+    DarkComboBox *m_comboFontBold = nullptr;
+    DarkComboBox *m_comboUiDensity = nullptr;
+
+    DarkComboBox *m_comboSidebarPos = nullptr;
+    ResettableSlider *m_sldSidebarWidth = nullptr;
+    QCheckBox *m_chkSidebarLabels = nullptr;
+    QCheckBox *m_chkRememberWinSize = nullptr;
+    QCheckBox *m_chkStartMinimized = nullptr;
+    QCheckBox *m_chkAlwaysOnTop = nullptr;
+
+    QCheckBox *m_chkHighContrast = nullptr;
+    QCheckBox *m_chkReduceTransp = nullptr;
+    DarkComboBox *m_comboEffectsQuality = nullptr;
+    QCheckBox *m_chkDisableBlurGpu = nullptr;
+
+    void applyLayoutAndTypographyLive();
+    void resetAppearanceToDefault();
     QTextEdit *m_logView = nullptr;
 
     QLabel *m_lblGitVersionInfo = nullptr;

@@ -1,3 +1,4 @@
+#include "core/SettingsRegistry.hpp"
 #include <QClipboard>
 #include <QScrollBar>
 #include <QGraphicsOpacityEffect>
@@ -91,7 +92,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_soberCtrl = new SoberController(&m_settingsMgr, this);
     m_apiClient = new RobloxApiClient(this);
 
-    setWindowTitle(tr("MqBlox v34.0 [HyperOS 4 Liquid Glass]"));
+    setWindowTitle(tr("MqBlox v34.5 [HyperOS 4 Liquid Glass]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
     if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -274,7 +275,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox v34.0 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox v34.5 — HyperOS 4 Liquid Glass"));
 
         auto *menu = new QMenu(nullptr);
         menu->setStyleSheet(
@@ -405,7 +406,7 @@ void MainWindow::initUi() {
 
     auto *topBar = new QHBoxLayout();
     topBar->setSpacing(8);
-    auto *topHint = new QLabel(tr("MqBlox v34.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
+    auto *topHint = new QLabel(tr("MqBlox v34.5 • HyperOS 4 Liquid Glass • Zero-Lag"));
     topHint->setObjectName("SubText");
     topBar->addWidget(topHint);
 
@@ -489,6 +490,10 @@ void MainWindow::initUi() {
     btnResetCat->setToolTip(tr("Сбросить параметры текущей категории к безопасным значениям по умолчанию"));
     connect(btnResetCat, &QPushButton::clicked, this, [this]() { resetCurrentCategoryToDefaults(); });
     bottomBar->addWidget(btnResetCat);
+    auto *btnResetLook = new AnimButton(tr("🎨 Сбросить вид"), nullptr, QColor(56, 189, 248));
+    btnResetLook->setToolTip(tr("Мгновенно вернуть стандартное читаемое оформление Liquid Glass"));
+    connect(btnResetLook, &QPushButton::clicked, this, [this]() { resetAppearanceToDefault(); });
+    bottomBar->addWidget(btnResetLook);
     bottomBar->addWidget(btnRejoin);
     bottomBar->addWidget(btnKill);
     bottomBar->addStretch();
@@ -1043,8 +1048,8 @@ QWidget *MainWindow::buildCameraModsPage() {
         QString cfgPath = m_settingsMgr.soberBaseDir() + "/config/sober/config.json";
         bool soberInstalled = QFileInfo::exists(m_settingsMgr.soberBaseDir());
         QString report = QString(
-            "=== MqBlox v34.0 Diagnostic Report ===\n"
-            "Version: v34.0 (Schema 34)\n"
+            "=== MqBlox v34.5 Diagnostic Report ===\n"
+            "Version: v34.5 (Schema 34)\n"
             "Wayland/X11 Platform: %1\n"
             "Sober Directory Exists: %2 (%3)\n"
             "Sober config.json Exists: %4\n"
@@ -1205,13 +1210,13 @@ void MainWindow::refreshGitUpdateStatus() {
         m_updateProgressBar->setRange(0, 100);
         m_updateProgressBar->setValue(100);
         if (code != 0 || out.isEmpty()) {
-            m_lblGitVersionInfo->setText(tr("🟡 <b>Автономный режим — работает локальная версия MqBlox v34.0</b>"));
+            m_lblGitVersionInfo->setText(tr("🟡 <b>Автономный режим — работает локальная версия MqBlox v34.5</b>"));
             m_updateProgressBar->setFormat(tr("⚠️ Нет сети или репозиторий недоступен (текущая версия сохранена)"));
             return;
         }
         bool upToDate = out.startsWith("UP_TO_DATE");
         if (upToDate) {
-            m_lblGitVersionInfo->setText(tr("🟢 <b>Уже установлена последняя версия MqBlox v34.0 [HyperOS 4 Liquid Glass]</b>"));
+            m_lblGitVersionInfo->setText(tr("🟢 <b>Уже установлена последняя версия MqBlox v34.5 [HyperOS 4 Liquid Glass]</b>"));
             m_updateProgressBar->setFormat(tr("✓ Установлена актуальная версия"));
         } else {
             m_lblGitVersionInfo->setText(tr("🔵 <b>Доступно новое обновление в репозитории MrQuster/mqblox!</b>"));
@@ -1276,10 +1281,7 @@ void MainWindow::resetCurrentCategoryToDefaults() {
         s.lowRamFflags = def.lowRamFflags; s.disableTelemetry = def.disableTelemetry;
         s.enableGamemode = def.enableGamemode; s.autoLaunchFromBrowser = def.autoLaunchFromBrowser;
         s.autoReconnectOnCrash = def.autoReconnectOnCrash; s.hideSoberDesktop = def.hideSoberDesktop;
-        s.glassBlurStrength = def.glassBlurStrength; s.glassOpacityPct = def.glassOpacityPct;
-        s.borderBrightnessPct = def.borderBrightnessPct; s.chameleonEnabled = def.chameleonEnabled;
-        s.reducedMotion = def.reducedMotion; s.videoFpsLimit = def.videoFpsLimit;
-        s.accentPreset = def.accentPreset;
+        SettingsRegistry::resetVisualAppearance(s);
     } else if (idx == 3) { // Графика (все списки, чекбоксы и редактор FFlags)
         s.graphicsApi = def.graphicsApi; s.optMode = def.optMode; s.lighting = def.lighting;
         s.textureQuality = def.textureQuality; s.msaa = def.msaa; s.targetFps = def.targetFps;
@@ -1298,6 +1300,63 @@ void MainWindow::resetCurrentCategoryToDefaults() {
     syncUiFromSettings();
     saveSettingsNow(true);
     enqueueToast(tr("↺ Все параметры текущей вкладки сброшены по умолчанию!"));
+}
+
+void MainWindow::resetAppearanceToDefault() {
+    SettingsRegistry::resetVisualAppearance(m_settingsMgr.settings());
+    syncUiFromSettings();
+    saveSettingsNow(true);
+    applyLayoutAndTypographyLive();
+    enqueueToast(tr("🎨 Оформление возвращено к стандартному стилю HyperOS 4 Liquid Glass!"));
+}
+
+void MainWindow::applyLayoutAndTypographyLive() {
+    const AppSettings &s = m_settingsMgr.settings();
+    if (m_rootCosmos) {
+        m_rootCosmos->applyVisualSettings(s);
+    }
+
+    // Применение масштаба шрифта и начертания на лету
+    int scaledPx = std::clamp(int(s.fontSizePx * (s.uiScalePct / 100.0)), 10, 22);
+    QFont appFont = QApplication::font();
+    appFont.setStyle(QFont::StyleNormal);
+    appFont.setItalic(false);
+    appFont.setPixelSize(scaledPx);
+    appFont.setWeight(s.fontBoldness == 1 ? QFont::Bold : QFont::Normal);
+    QApplication::setFont(appFont);
+
+    // Применение ширины боковой панели и подписей у иконок
+    if (m_sidebar) {
+        bool compact = !s.sidebarShowLabels || (s.sidebarPosition == 1);
+        int targetW = compact ? 68 : std::clamp(s.sidebarWidthPx, 160, 280);
+        if (s.sidebarPinned) {
+            m_sidebar->setMinimumWidth(targetW);
+            m_sidebar->setMaximumWidth(targetW);
+        }
+        for (auto *b : m_navButtons) {
+            b->setCompactMode(compact);
+        }
+    }
+
+    // Плотность отступов карточек
+    int padV = (s.uiDensity == 0) ? 6 : ((s.uiDensity == 2) ? 16 : 12);
+    for (int i = 1; i < m_pages->count(); ++i) {
+        if (auto *sa = qobject_cast<QScrollArea *>(m_pages->widget(i))) {
+            if (sa->widget() && sa->widget()->layout()) {
+                sa->widget()->layout()->setSpacing(padV);
+            }
+        }
+    }
+
+    // Применение «Всегда поверх» на сессиях X11
+    if (!QGuiApplication::platformName().contains("wayland", Qt::CaseInsensitive)) {
+        bool curTop = (windowFlags() & Qt::WindowStaysOnTopHint);
+        if (curTop != s.alwaysOnTop) {
+            setWindowFlag(Qt::WindowStaysOnTopHint, s.alwaysOnTop);
+            show();
+        }
+    }
+    update();
 }
 
 void MainWindow::syncUiFromSettings() {
@@ -1358,24 +1417,60 @@ void MainWindow::syncUiFromSettings() {
     if (m_chkHitboxes) m_chkHitboxes->setChecked(s.showHitboxes);
     if (m_chkWallhop) m_chkWallhop->setChecked(false);
 
-    if (m_comboBlurStrength) {
-        int bIdx = m_comboBlurStrength->findData(s.glassBlurStrength);
-        m_comboBlurStrength->setCurrentIndex(bIdx >= 0 ? bIdx : 1);
-    }
-    if (m_spinGlassOpacity) m_spinGlassOpacity->setValue(s.glassOpacityPct);
-    if (m_spinBorderBright) m_spinBorderBright->setValue(s.borderBrightnessPct);
+    // Stage 3 Visual Controls
+    if (m_comboVisualPreset) m_comboVisualPreset->setCurrentIndex(m_comboVisualPreset->findData(s.visualPreset));
+    if (m_sldBlur) m_sldBlur->setValueSilent(s.glassBlurStrength);
+    if (m_sldOpacity) m_sldOpacity->setValueSilent(s.glassOpacityPct);
+    if (m_sldBorderThick) m_sldBorderThick->setValueSilent(s.borderThicknessPx);
+    if (m_sldBorderBright) m_sldBorderBright->setValueSilent(s.borderBrightnessPct);
+    if (m_sldSaturation) m_sldSaturation->setValueSilent(s.glassSaturationPct);
+    if (m_sldSpecular) m_sldSpecular->setValueSilent(s.specularStrengthPct);
+    if (m_sldShadow) m_sldShadow->setValueSilent(s.shadowStrengthPct);
+    if (m_comboCornerRadius) m_comboCornerRadius->setCurrentIndex(m_comboCornerRadius->findData(s.cornerRadiusMode));
+    if (m_comboGlassStyle) m_comboGlassStyle->setCurrentIndex(m_comboGlassStyle->findData(s.glassStyleMode));
+
+    if (m_comboThemeMode) m_comboThemeMode->setCurrentIndex(m_comboThemeMode->findData(s.themeMode));
+    if (m_comboAccent) m_comboAccent->setCurrentIndex(m_comboAccent->findData(s.accentPreset));
+    if (m_inpCustomHex) m_inpCustomHex->setText(s.customAccentHex);
     if (m_chkChameleon) m_chkChameleon->setChecked(s.chameleonEnabled);
-    if (m_chkReducedMotion) m_chkReducedMotion->setChecked(s.reducedMotion);
+    if (m_sldChamSpeed) m_sldChamSpeed->setValueSilent(s.chameleonSpeedPct);
+    if (m_sldChamStrength) m_sldChamStrength->setValueSilent(s.chameleonStrengthPct);
+    if (m_comboBorderSource) m_comboBorderSource->setCurrentIndex(m_comboBorderSource->findData(s.borderColorSource));
+    if (m_comboTextColor) m_comboTextColor->setCurrentIndex(m_comboTextColor->findData(s.textColorMode));
+
+    if (m_comboBackdropType) m_comboBackdropType->setCurrentIndex(m_comboBackdropType->findData(s.backdropType));
+    if (m_sldBackdropDim) m_sldBackdropDim->setValueSilent(s.backdropDimPct);
     if (m_comboVideoFps) {
         int fIdx = m_comboVideoFps->findData(s.videoFpsLimit);
         m_comboVideoFps->setCurrentIndex(fIdx >= 0 ? fIdx : 0);
     }
-    if (m_comboAccent) { int aIdx = m_comboAccent->findData(s.accentPreset); m_comboAccent->setCurrentIndex(aIdx >= 0 ? aIdx : 0); }
+    if (m_chkPauseFocusLoss) m_chkPauseFocusLoss->setChecked(s.pauseOnFocusLoss);
+
+    if (m_chkAnimEnabled) m_chkAnimEnabled->setChecked(s.animationsEnabled);
+    if (m_sldAnimSpeed) m_sldAnimSpeed->setValueSilent(s.animSpeedPct);
+    if (m_comboAnimStyle) m_comboAnimStyle->setCurrentIndex(m_comboAnimStyle->findData(s.animStyle));
+    if (m_chkCursorGlow) m_chkCursorGlow->setChecked(s.cursorGlowFollow);
+    if (m_chkReducedMotion) m_chkReducedMotion->setChecked(s.reducedMotion);
+
+    if (m_sldUiScale) m_sldUiScale->setValueSilent(s.uiScalePct);
+    if (m_sldFontSize) m_sldFontSize->setValueSilent(s.fontSizePx);
+    if (m_comboFontBold) m_comboFontBold->setCurrentIndex(m_comboFontBold->findData(s.fontBoldness));
+    if (m_comboUiDensity) m_comboUiDensity->setCurrentIndex(m_comboUiDensity->findData(s.uiDensity));
+
+    if (m_comboSidebarPos) m_comboSidebarPos->setCurrentIndex(m_comboSidebarPos->findData(s.sidebarPosition));
+    if (m_sldSidebarWidth) m_sldSidebarWidth->setValueSilent(s.sidebarWidthPx);
+    if (m_chkSidebarLabels) m_chkSidebarLabels->setChecked(s.sidebarShowLabels);
+    if (m_chkRememberWinSize) m_chkRememberWinSize->setChecked(s.rememberWindowSize);
+    if (m_chkStartMinimized) m_chkStartMinimized->setChecked(s.startMinimized);
+    if (m_chkAlwaysOnTop && m_chkAlwaysOnTop->isEnabled()) m_chkAlwaysOnTop->setChecked(s.alwaysOnTop);
+
+    if (m_comboEffectsQuality) m_comboEffectsQuality->setCurrentIndex(m_comboEffectsQuality->findData(s.effectsQuality));
+    if (m_chkHighContrast) m_chkHighContrast->setChecked(s.highContrast);
+    if (m_chkReduceTransp) m_chkReduceTransp->setChecked(s.reduceTransparency);
+    if (m_chkDisableBlurGpu) m_chkDisableBlurGpu->setChecked(s.disableBlurLowGpu);
 
     if (m_rootCosmos) {
-        m_rootCosmos->setAnimationEnabled(s.animBg);
-        m_rootCosmos->configureVisuals(s.glassBlurStrength, s.glassOpacityPct, s.borderBrightnessPct,
-                                       s.chameleonEnabled, s.reducedMotion, s.videoFpsLimit, s.accentPreset);
+        m_rootCosmos->applyVisualSettings(s);
     }
 
     m_inpPlace->setText(s.lastPlaceInput);
@@ -1440,18 +1535,61 @@ void MainWindow::collectSettingsFromUi() {
     if (m_chkFullBright) s.fullBright = m_chkFullBright->isChecked();
     if (m_chkHitboxes) s.showHitboxes = m_chkHitboxes->isChecked();
 
-    if (m_comboBlurStrength) s.glassBlurStrength = m_comboBlurStrength->currentData().toInt();
-    if (m_spinGlassOpacity) s.glassOpacityPct = m_spinGlassOpacity->value();
-    if (m_spinBorderBright) s.borderBrightnessPct = m_spinBorderBright->value();
-    if (m_chkChameleon) s.chameleonEnabled = m_chkChameleon->isChecked();
-    if (m_chkReducedMotion) s.reducedMotion = m_chkReducedMotion->isChecked();
-    if (m_comboVideoFps) s.videoFpsLimit = m_comboVideoFps->currentData().toInt();
+    if (m_comboVisualPreset) s.visualPreset = m_comboVisualPreset->currentData().toInt();
+    if (m_sldBlur) s.glassBlurStrength = m_sldBlur->value();
+    if (m_sldOpacity) s.glassOpacityPct = m_sldOpacity->value();
+    if (m_sldBorderThick) s.borderThicknessPx = m_sldBorderThick->value();
+    if (m_sldBorderBright) s.borderBrightnessPct = m_sldBorderBright->value();
+    if (m_sldSaturation) s.glassSaturationPct = m_sldSaturation->value();
+    if (m_sldSpecular) s.specularStrengthPct = m_sldSpecular->value();
+    if (m_sldShadow) s.shadowStrengthPct = m_sldShadow->value();
+    if (m_comboCornerRadius) s.cornerRadiusMode = m_comboCornerRadius->currentData().toInt();
+    if (m_comboGlassStyle) s.glassStyleMode = m_comboGlassStyle->currentData().toInt();
+
+    if (m_comboThemeMode) s.themeMode = m_comboThemeMode->currentData().toInt();
     if (m_comboAccent) s.accentPreset = m_comboAccent->currentData().toInt();
+    if (m_inpCustomHex) s.customAccentHex = m_inpCustomHex->text().trimmed();
+    if (m_chkChameleon) s.chameleonEnabled = m_chkChameleon->isChecked();
+    if (m_sldChamSpeed) s.chameleonSpeedPct = m_sldChamSpeed->value();
+    if (m_sldChamStrength) s.chameleonStrengthPct = m_sldChamStrength->value();
+    if (m_comboBorderSource) s.borderColorSource = m_comboBorderSource->currentData().toInt();
+    if (m_comboTextColor) s.textColorMode = m_comboTextColor->currentData().toInt();
+
+    if (m_comboBackdropType) s.backdropType = m_comboBackdropType->currentData().toInt();
+    if (m_sldBackdropDim) s.backdropDimPct = m_sldBackdropDim->value();
+    if (m_comboVideoFps) s.videoFpsLimit = m_comboVideoFps->currentData().toInt();
+    if (m_chkPauseFocusLoss) s.pauseOnFocusLoss = m_chkPauseFocusLoss->isChecked();
+
+    if (m_chkAnimEnabled) s.animationsEnabled = m_chkAnimEnabled->isChecked();
+    if (m_sldAnimSpeed) s.animSpeedPct = m_sldAnimSpeed->value();
+    if (m_comboAnimStyle) s.animStyle = m_comboAnimStyle->currentData().toInt();
+    if (m_chkCursorGlow) s.cursorGlowFollow = m_chkCursorGlow->isChecked();
+    if (m_chkReducedMotion) s.reducedMotion = m_chkReducedMotion->isChecked();
+
+    if (m_sldUiScale) s.uiScalePct = m_sldUiScale->value();
+    if (m_sldFontSize) s.fontSizePx = m_sldFontSize->value();
+    if (m_comboFontBold) s.fontBoldness = m_comboFontBold->currentData().toInt();
+    if (m_comboUiDensity) s.uiDensity = m_comboUiDensity->currentData().toInt();
+
+    if (m_comboSidebarPos) s.sidebarPosition = m_comboSidebarPos->currentData().toInt();
+    if (m_sldSidebarWidth) s.sidebarWidthPx = m_sldSidebarWidth->value();
+    if (m_chkSidebarLabels) s.sidebarShowLabels = m_chkSidebarLabels->isChecked();
+    if (m_chkRememberWinSize) s.rememberWindowSize = m_chkRememberWinSize->isChecked();
+    if (m_chkStartMinimized) s.startMinimized = m_chkStartMinimized->isChecked();
+    if (m_chkAlwaysOnTop && m_chkAlwaysOnTop->isEnabled()) s.alwaysOnTop = m_chkAlwaysOnTop->isChecked();
+
+    if (m_comboEffectsQuality) s.effectsQuality = m_comboEffectsQuality->currentData().toInt();
+    if (m_chkHighContrast) s.highContrast = m_chkHighContrast->isChecked();
+    if (m_chkReduceTransp) s.reduceTransparency = m_chkReduceTransp->isChecked();
+    if (m_chkDisableBlurGpu) s.disableBlurLowGpu = m_chkDisableBlurGpu->isChecked();
+
+    if (s.rememberWindowSize && width() >= 820 && height() >= 540) {
+        s.savedWindowWidth = width();
+        s.savedWindowHeight = height();
+    }
 
     if (m_rootCosmos) {
-        m_rootCosmos->setAnimationEnabled(s.animBg);
-        m_rootCosmos->configureVisuals(s.glassBlurStrength, s.glassOpacityPct, s.borderBrightnessPct,
-                                       s.chameleonEnabled, s.reducedMotion, s.videoFpsLimit, s.accentPreset);
+        m_rootCosmos->applyVisualSettings(s);
     }
 
     s.lastPlaceInput = m_inpPlace->text().trimmed();

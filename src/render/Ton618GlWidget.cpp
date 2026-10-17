@@ -3,6 +3,7 @@
 #include <QEvent>
 #include <QFile>
 #include <QFileInfo>
+#include <QLinearGradient>
 #include <QMetaObject>
 #include <QPainter>
 #include <QPainterPath>
@@ -17,32 +18,54 @@
 namespace mqblox {
 
 QColor Ton618GlWidget::fixedAccentColor() const {
-    switch (m_accentPreset.load()) {
-        case 1: return QColor(251, 191, 36);
-        case 2: return QColor(52, 211, 153);
-        case 3: return QColor(168, 85, 247);
-        default: return QColor(56, 189, 248);
+    int preset = m_accentPreset.load();
+    if (preset == 4) {
+        std::lock_guard<std::mutex> lk(m_visMutex);
+        if (m_vis.customAccent.isValid()) return m_vis.customAccent;
+    }
+    switch (preset) {
+        case 1: return QColor(251, 191, 36);  // Золото TON 618
+        case 2: return QColor(52, 211, 153);  // Изумрудный неон
+        case 3: return QColor(168, 85, 247);  // Фиолетовый квазар
+        default: return QColor(56, 189, 248); // Голубой HyperOS
     }
 }
 
-QImage Ton618GlWidget::buildCrystalFrostedImage(const QImage &src, int radius) {
-    if (src.isNull() || radius <= 1) return src;
+QColor Ton618GlWidget::resolveTextColor(const QColor &surfaceTint) const {
+    VisualParams vp = visuals();
+    if (vp.highContrast) return QColor(255, 255, 255);
+    if (vp.textColorMode == 1) return QColor(248, 250, 252);
+    if (vp.textColorMode == 2) {
+        // Если выбран тёмный текст, проверяем, достаточно ли светлая подложка (тема Светлая)
+        return (vp.themeMode == 1) ? QColor(15, 23, 42) : QColor(241, 245, 249);
+    }
+    // Авто по контрасту WCAG AA
+    if (vp.themeMode == 1) return QColor(15, 23, 42);
+    int lum = (surfaceTint.red() * 77 + surfaceTint.green() * 150 + surfaceTint.blue() * 29) >> 8;
+    return (lum > 185) ? QColor(15, 23, 42) : QColor(248, 250, 252);
+}
+
+QImage Ton618GlWidget::buildCrystalFrostedImage(const QImage &src, int radius, int saturationPct) {
+    if (src.isNull()) return src;
     QImage img = src.convertToFormat(QImage::Format_ARGB32_Premultiplied);
     const int w = img.width(), h = img.height();
-    QImage tmp(w, h, QImage::Format_ARGB32_Premultiplied);
+    const int satScale = std::clamp(saturationPct, 80, 220);
 
     for (int y = 0; y < h; ++y) {
         QRgb *line = reinterpret_cast<QRgb *>(img.scanLine(y));
         for (int x = 0; x < w; ++x) {
             int r = qRed(line[x]), g = qGreen(line[x]), b = qBlue(line[x]);
             int lum = (r * 77 + g * 150 + b * 29) >> 8;
-            r = std::clamp(lum + ((r - lum) * 160) / 100 + 6, 0, 255);
-            g = std::clamp(lum + ((g - lum) * 155) / 100 + 5, 0, 255);
-            b = std::clamp(lum + ((b - lum) * 165) / 100 + 8, 0, 255);
+            r = std::clamp(lum + ((r - lum) * satScale) / 100 + 4, 0, 255);
+            g = std::clamp(lum + ((g - lum) * satScale) / 100 + 4, 0, 255);
+            b = std::clamp(lum + ((b - lum) * satScale) / 100 + 6, 0, 255);
             line[x] = qRgb(r, g, b);
         }
     }
 
+    if (radius <= 0) return img;
+
+    QImage tmp(w, h, QImage::Format_ARGB32_Premultiplied);
     for (int pass = 0; pass < 2; ++pass) {
         for (int y = 0; y < h; ++y) {
             const QRgb *inLine = reinterpret_cast<const QRgb *>(img.constScanLine(y));
@@ -88,6 +111,8 @@ QImage Ton618GlWidget::buildCrystalFrostedImage(const QImage &src, int radius) {
 
 void Ton618GlWidget::buildAdaptiveColorMap(const QImage &srcSmall,
                                            const QImage &prevMap,
+                                           int speedPct,
+                                           int strengthPct,
                                            QImage &outMap,
                                            QColor &outPrimary,
                                            QColor &outSecondary) {
@@ -114,13 +139,15 @@ void Ton618GlWidget::buildAdaptiveColorMap(const QImage &srcSmall,
         }
     }
 
-    auto normalizeVibrant = [](double r, double g, double b) -> QColor {
+    float strengthFactor = std::clamp(strengthPct, 20, 150) / 100.0f;
+
+    auto normalizeVibrant = [strengthFactor](double r, double g, double b) -> QColor {
         QColor c(std::clamp(int(r), 0, 255), std::clamp(int(g), 0, 255), std::clamp(int(b), 0, 255));
         float hf = 0.08f, sf = 0.7f, lf = 0.68f;
         c.getHslF(&hf, &sf, &lf);
         if (hf < 0.0f) hf = 0.08f;
-        sf = std::clamp(sf * 1.40f + 0.22f, 0.55f, 0.94f);
-        lf = std::clamp(lf * 1.12f + 0.28f, 0.64f, 0.80f);
+        sf = std::clamp((sf * 1.35f + 0.20f) * strengthFactor, 0.25f, 0.96f);
+        lf = std::clamp(lf * 1.12f + 0.28f, 0.62f, 0.80f);
         return QColor::fromHslF(hf, sf, lf);
     };
 
@@ -128,6 +155,8 @@ void Ton618GlWidget::buildAdaptiveColorMap(const QImage &srcSmall,
     outSecondary = normalizeVibrant(rAcc2 / wAcc2, gAcc2 / wAcc2, bAcc2 / wAcc2);
 
     bool hasPrev = (!prevMap.isNull() && prevMap.width() == w && prevMap.height() == h);
+    int newWeight = std::clamp(speedPct, 5, 100);
+    int oldWeight = 100 - newWeight;
 
     for (int y = 0; y < h; ++y) {
         QRgb *line = reinterpret_cast<QRgb *>(cmap.scanLine(y));
@@ -147,16 +176,16 @@ void Ton618GlWidget::buildAdaptiveColorMap(const QImage &srcSmall,
                 ng = (c.green() + mg * 2) / 3;
                 nb = (c.blue() + mb * 2) / 3;
             } else {
-                sf = std::clamp(sf * 1.35f + 0.20f, 0.50f, 0.94f);
-                lf = std::clamp(0.56f + lf * 0.30f, 0.62f, 0.82f);
+                sf = std::clamp((sf * 1.32f + 0.18f) * strengthFactor, 0.20f, 0.95f);
+                lf = std::clamp(0.56f + lf * 0.30f, 0.60f, 0.82f);
                 QColor vc = QColor::fromHslF(hf, sf, lf);
                 nr = vc.red(); ng = vc.green(); nb = vc.blue();
             }
 
             if (pLine) {
-                nr = (qRed(pLine[x]) * 4 + nr) / 5;
-                ng = (qGreen(pLine[x]) * 4 + ng) / 5;
-                nb = (qBlue(pLine[x]) * 4 + nb) / 5;
+                nr = (qRed(pLine[x]) * oldWeight + nr * newWeight) / 100;
+                ng = (qGreen(pLine[x]) * oldWeight + ng * newWeight) / 100;
+                nb = (qBlue(pLine[x]) * oldWeight + nb * newWeight) / 100;
             }
             line[x] = qRgb(nr, ng, nb);
         }
@@ -165,7 +194,11 @@ void Ton618GlWidget::buildAdaptiveColorMap(const QImage &srcSmall,
 }
 
 QColor Ton618GlWidget::sampleAdaptiveColor(const QWidget *caller, const QPointF &localPos) const {
-    if (!m_chameleonEnabled.load()) {
+    VisualParams vp = visuals();
+    if (vp.borderColorSource == 2) {
+        return (vp.themeMode == 1) ? QColor(100, 116, 139) : QColor(226, 232, 240);
+    }
+    if (!m_chameleonEnabled.load() || vp.borderColorSource == 1) {
         return fixedAccentColor();
     }
     if (m_colorMap.isNull() || width() <= 1 || height() <= 1) {
@@ -208,6 +241,84 @@ Ton618GlWidget::~Ton618GlWidget() {
     stopDecoderThread();
 }
 
+void Ton618GlWidget::updatePauseState() {
+    bool min = window() && window()->isMinimized();
+    bool focusPaused = m_pauseOnFocusLoss.load() && !m_windowFocused;
+    m_paused = (min || focusPaused || !m_animEnabled || m_inGamePaused || !isVisible());
+}
+
+void Ton618GlWidget::applyVisualSettings(const AppSettings &s) {
+    int effectiveBlur = s.glassBlurStrength;
+    if (s.disableBlurLowGpu || s.effectsQuality == 0) effectiveBlur = 0;
+    else if (s.effectsQuality == 1) effectiveBlur = std::min(effectiveBlur, 3);
+
+    bool needStaticRebuild = false;
+    bool prevAnim = m_animEnabled;
+    bool wantVideo = s.animBg && (s.backdropType == 0 || s.backdropType == 3);
+
+    {
+        std::lock_guard<std::mutex> lk(m_visMutex);
+        if (m_vis.backdropType != s.backdropType || m_vis.glassSaturationPct != s.glassSaturationPct) {
+            needStaticRebuild = true;
+        }
+        m_vis.blurStrength = effectiveBlur;
+        m_vis.glassOpacityPct = s.reduceTransparency ? std::max(45, s.glassOpacityPct) : s.glassOpacityPct;
+        m_vis.borderThicknessPx = s.highContrast ? std::max(16, s.borderThicknessPx) : s.borderThicknessPx;
+        m_vis.borderBrightnessPct = s.highContrast ? std::max(145, s.borderBrightnessPct) : s.borderBrightnessPct;
+        m_vis.glassSaturationPct = s.glassSaturationPct;
+        m_vis.specularStrengthPct = (s.effectsQuality == 0) ? 0 : s.specularStrengthPct;
+        m_vis.shadowStrengthPct = (s.effectsQuality == 0) ? 0 : s.shadowStrengthPct;
+        m_vis.cornerRadiusMode = s.cornerRadiusMode;
+        m_vis.glassStyleMode = s.glassStyleMode;
+
+        m_vis.themeMode = s.themeMode;
+        m_vis.accentPreset = s.accentPreset;
+        QColor hexCol(s.customAccentHex.trimmed());
+        m_vis.customAccent = hexCol.isValid() ? hexCol : QColor(56, 189, 248);
+        m_vis.chameleonEnabled = s.chameleonEnabled && !s.highContrast;
+        m_vis.chameleonSpeedPct = s.chameleonSpeedPct;
+        m_vis.chameleonStrengthPct = s.chameleonStrengthPct;
+        m_vis.borderColorSource = s.borderColorSource;
+        m_vis.textColorMode = s.textColorMode;
+
+        m_vis.backdropType = s.backdropType;
+        m_vis.backdropDimPct = s.backdropDimPct;
+        m_vis.videoFpsLimit = s.videoFpsLimit;
+        m_vis.pauseOnFocusLoss = s.pauseOnFocusLoss;
+
+        m_vis.animationsEnabled = s.animationsEnabled && !s.reducedMotion;
+        m_vis.animSpeedPct = s.animSpeedPct;
+        m_vis.animStyle = (!s.animationsEnabled || s.reducedMotion) ? 2 : s.animStyle;
+        m_vis.cursorGlowFollow = s.cursorGlowFollow && !s.reducedMotion && (s.effectsQuality > 0);
+        m_vis.reducedMotion = s.reducedMotion || !s.animationsEnabled || (s.animStyle == 2);
+
+        m_vis.highContrast = s.highContrast;
+        m_vis.reduceTransparency = s.reduceTransparency;
+        m_vis.effectsQuality = s.effectsQuality;
+        m_vis.disableBlurLowGpu = s.disableBlurLowGpu;
+    }
+
+    if (m_blurStrength.exchange(effectiveBlur) != effectiveBlur) needStaticRebuild = true;
+    m_saturationPct = s.glassSaturationPct;
+    m_glassOpacityPct = s.reduceTransparency ? std::max(45, s.glassOpacityPct) : s.glassOpacityPct;
+    m_borderBrightnessPct = s.borderBrightnessPct;
+    m_chameleonEnabled = s.chameleonEnabled && !s.highContrast;
+    m_chameleonSpeed = s.chameleonSpeedPct;
+    m_chameleonStrength = s.chameleonStrengthPct;
+    m_reducedMotion = s.reducedMotion || !s.animationsEnabled || (s.animStyle == 2);
+    m_videoFps = std::clamp(s.videoFpsLimit, 15, 60);
+    m_accentPreset = s.accentPreset;
+    m_pauseOnFocusLoss = s.pauseOnFocusLoss;
+
+    if (prevAnim != wantVideo) {
+        setAnimationEnabled(wantVideo);
+    } else if (needStaticRebuild) {
+        updateStaticCaches();
+    }
+    updatePauseState();
+    if (window()) window()->update();
+}
+
 void Ton618GlWidget::configureVisuals(int blurStrength,
                                       int glassOpacityPct,
                                       int borderBrightnessPct,
@@ -215,24 +326,28 @@ void Ton618GlWidget::configureVisuals(int blurStrength,
                                       bool reducedMotion,
                                       int fpsLimit,
                                       int accentPreset) {
-    bool blurChanged = (m_blurStrength.exchange(std::clamp(blurStrength, 1, 8)) != blurStrength);
-    m_glassOpacityPct = std::clamp(glassOpacityPct, 4, 40);
-    m_borderBrightnessPct = std::clamp(borderBrightnessPct, 30, 150);
+    bool blurChanged = (m_blurStrength.exchange(std::clamp(blurStrength, 0, 8)) != blurStrength);
+    m_glassOpacityPct = std::clamp(glassOpacityPct, 2, 60);
+    m_borderBrightnessPct = std::clamp(borderBrightnessPct, 20, 180);
     m_chameleonEnabled = chameleon;
     m_reducedMotion = reducedMotion;
     m_videoFps = std::clamp(fpsLimit, 15, 60);
-    m_accentPreset = std::clamp(accentPreset, 0, 3);
-
-    if (blurChanged) {
-        updateStaticCaches();
-    }
+    m_accentPreset = std::clamp(accentPreset, 0, 4);
+    if (blurChanged) updateStaticCaches();
     if (window()) window()->update();
 }
 
 bool Ton618GlWidget::eventFilter(QObject *watched, QEvent *event) {
-    if (watched == window() && event->type() == QEvent::WindowStateChange) {
-        bool min = window()->isMinimized();
-        m_paused = (min || !m_animEnabled || m_inGamePaused || !isVisible());
+    if (watched == window()) {
+        if (event->type() == QEvent::WindowStateChange) {
+            updatePauseState();
+        } else if (event->type() == QEvent::WindowActivate) {
+            m_windowFocused = true;
+            updatePauseState();
+        } else if (event->type() == QEvent::WindowDeactivate) {
+            m_windowFocused = false;
+            updatePauseState();
+        }
     }
     return QWidget::eventFilter(watched, event);
 }
@@ -271,7 +386,6 @@ void Ton618GlWidget::decoderLoop() {
     std::vector<uchar> buf(FRAME_BYTES);
     QImage prevColorMap;
     auto nextTick = std::chrono::steady_clock::now();
-
     QPointer<Ton618GlWidget> safeThis(this);
 
     while (!m_stopWorker) {
@@ -291,7 +405,10 @@ void Ton618GlWidget::decoderLoop() {
 
         int tw = std::max(320, m_targetW.load());
         int th = std::max(240, m_targetH.load());
-        int blurR = std::clamp(m_blurStrength.load(), 1, 8);
+        int blurR = std::clamp(m_blurStrength.load(), 0, 8);
+        int satPct = std::clamp(m_saturationPct.load(), 80, 220);
+        int cSpeed = std::clamp(m_chameleonSpeed.load(), 5, 100);
+        int cStrength = std::clamp(m_chameleonStrength.load(), 20, 150);
 
         if (!m_frameQueued.load()) {
             QImage rawFrame(buf.data(), STREAM_W, STREAM_H, STREAM_W * 4, QImage::Format_RGB32);
@@ -302,12 +419,12 @@ void Ton618GlWidget::decoderLoop() {
             QImage sharpFinal = sharpScaled.copy(offX, offY, tw, th);
 
             QImage small = sharpFinal.scaled(240, 135, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-            QImage blurredSmall = buildCrystalFrostedImage(small, blurR);
+            QImage blurredSmall = buildCrystalFrostedImage(small, blurR, satPct);
             QImage frostedFinal = blurredSmall.scaled(tw, th, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 
             QImage cmap;
             QColor amb1, amb2;
-            buildAdaptiveColorMap(blurredSmall, prevColorMap, cmap, amb1, amb2);
+            buildAdaptiveColorMap(blurredSmall, prevColorMap, cSpeed, cStrength, cmap, amb1, amb2);
             prevColorMap = cmap;
 
             m_frameQueued = true;
@@ -378,7 +495,7 @@ void Ton618GlWidget::showEvent(QShowEvent *e) {
         window()->removeEventFilter(this);
         window()->installEventFilter(this);
     }
-    m_paused = (!m_animEnabled || m_inGamePaused || (window() && window()->isMinimized()));
+    updatePauseState();
 }
 
 void Ton618GlWidget::hideEvent(QHideEvent *e) {
@@ -389,7 +506,7 @@ void Ton618GlWidget::hideEvent(QHideEvent *e) {
 void Ton618GlWidget::setAnimationEnabled(bool enabled) {
     if (m_animEnabled == enabled) return;
     m_animEnabled = enabled;
-    m_paused = (!m_animEnabled || m_inGamePaused || !isVisible());
+    updatePauseState();
     if (!m_animEnabled) {
         stopDecoderThread();
         updateStaticCaches();
@@ -401,7 +518,7 @@ void Ton618GlWidget::setAnimationEnabled(bool enabled) {
 
 void Ton618GlWidget::setInGamePaused(bool paused) {
     m_inGamePaused = paused;
-    m_paused = (!m_animEnabled || m_inGamePaused || !isVisible());
+    updatePauseState();
 }
 
 void Ton618GlWidget::setWebTabActive(bool) {}
@@ -421,18 +538,46 @@ void Ton618GlWidget::loadBestFallbackImage() {
 }
 
 void Ton618GlWidget::updateStaticCaches() {
-    if (width() <= 10 || height() <= 10 || m_fallbackImg.isNull()) return;
-    QImage sharpScaled = m_fallbackImg.scaled(size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+    if (width() <= 10 || height() <= 10) return;
+
+    VisualParams vp = visuals();
+    QImage baseImg = m_fallbackImg;
+
+    if (vp.backdropType == 2) {
+        // Космический градиент (0% CPU/GPU)
+        QImage gradImg(320, 180, QImage::Format_RGB32);
+        QPainter gp(&gradImg);
+        QLinearGradient lg(0, 0, 320, 180);
+        if (vp.themeMode == 1) {
+            lg.setColorAt(0.0, QColor(224, 242, 254));
+            lg.setColorAt(0.5, QColor(241, 245, 249));
+            lg.setColorAt(1.0, QColor(226, 232, 240));
+        } else {
+            QColor acc = fixedAccentColor();
+            lg.setColorAt(0.0, QColor(6, 10, 24));
+            lg.setColorAt(0.55, QColor(acc.red() / 5, acc.green() / 5, acc.blue() / 4));
+            lg.setColorAt(1.0, QColor(4, 6, 14));
+        }
+        gp.fillRect(gradImg.rect(), lg);
+        gp.end();
+        baseImg = gradImg;
+    } else if (baseImg.isNull()) {
+        loadBestFallbackImage();
+        baseImg = m_fallbackImg;
+    }
+
+    QImage sharpScaled = baseImg.scaled(size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
     int offX = std::max(0, (sharpScaled.width() - width()) / 2);
     int offY = std::max(0, (sharpScaled.height() - height()) / 2);
     QImage cropped = sharpScaled.copy(offX, offY, width(), height());
     m_scaledSharp = QPixmap::fromImage(cropped);
 
     QImage small = cropped.scaled(240, 135, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-    QImage blurredSmall = buildCrystalFrostedImage(small, std::clamp(m_blurStrength.load(), 1, 8));
+    QImage blurredSmall = buildCrystalFrostedImage(small, std::clamp(m_blurStrength.load(), 0, 8), m_saturationPct.load());
     m_scaledFrosted = QPixmap::fromImage(blurredSmall.scaled(size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
     QImage prev;
-    buildAdaptiveColorMap(blurredSmall, prev, m_colorMap, m_ambientPrimary, m_ambientSecondary);
+    buildAdaptiveColorMap(blurredSmall, prev, m_chameleonSpeed.load(), m_chameleonStrength.load(),
+                          m_colorMap, m_ambientPrimary, m_ambientSecondary);
 }
 
 void Ton618GlWidget::resizeEvent(QResizeEvent *e) {
@@ -450,9 +595,11 @@ void Ton618GlWidget::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
     const int w = width(), h = height();
+    VisualParams vp = visuals();
 
+    double winRadius = (vp.cornerRadiusMode == 0) ? 14.0 : ((vp.cornerRadiusMode == 2) ? 26.0 : 22.0);
     QPainterPath clip;
-    clip.addRoundedRect(1.0, 1.0, w - 2.0, h - 2.0, 22.0, 22.0);
+    clip.addRoundedRect(1.0, 1.0, w - 2.0, h - 2.0, winRadius, winRadius);
     p.setClipPath(clip);
 
     if (!m_scaledSharp.isNull()) {
@@ -465,6 +612,14 @@ void Ton618GlWidget::paintEvent(QPaintEvent *) {
         p.fillRect(rect(), QColor(3, 4, 9));
     }
 
+    // Затемнение заднего фона (0..85%) или осветление для светлой темы
+    if (vp.themeMode == 1) {
+        p.fillRect(rect(), QColor(248, 250, 252, 165));
+    } else if (vp.backdropDimPct > 0) {
+        int dimAlpha = std::clamp(vp.backdropDimPct * 255 / 100, 0, 225);
+        p.fillRect(rect(), QColor(2, 4, 10, dimAlpha));
+    }
+
     QLinearGradient winRim(0, 0, w, h);
     QColor c1 = m_chameleonEnabled.load() ? m_ambientPrimary : fixedAccentColor();
     QColor c2 = m_chameleonEnabled.load() ? m_ambientSecondary : fixedAccentColor().darker(125);
@@ -473,9 +628,9 @@ void Ton618GlWidget::paintEvent(QPaintEvent *) {
     winRim.setColorAt(0.0, QColor(255, 255, 255, 145));
     winRim.setColorAt(0.5, c1);
     winRim.setColorAt(1.0, c2);
-    p.setPen(QPen(QBrush(winRim), 1.1));
+    p.setPen(QPen(QBrush(winRim), std::clamp(vp.borderThicknessPx / 10.0, 0.5, 2.5)));
     p.setBrush(Qt::NoBrush);
-    p.drawRoundedRect(1, 1, w - 2, h - 2, 22, 22);
+    p.drawRoundedRect(1, 1, w - 2, h - 2, winRadius, winRadius);
 }
 
 } // namespace mqblox
