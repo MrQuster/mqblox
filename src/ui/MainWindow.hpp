@@ -174,6 +174,16 @@ private:
     QCheckBox *m_chkFullBright = nullptr;
     QCheckBox *m_chkHitboxes = nullptr;
     QCheckBox *m_chkWallhop = nullptr;
+    QLineEdit *m_inpSearchSettings = nullptr;
+    DarkComboBox *m_comboBlurStrength = nullptr;
+    QSpinBox *m_spinGlassOpacity = nullptr;
+    QSpinBox *m_spinBorderBright = nullptr;
+    QCheckBox *m_chkChameleon = nullptr;
+    QCheckBox *m_chkReducedMotion = nullptr;
+    DarkComboBox *m_comboVideoFps = nullptr;
+    DarkComboBox *m_comboAccent = nullptr;
+    void filterSettingsBySearch(const QString &query);
+    void resetCurrentCategoryToDefaults();
     QTextEdit *m_logView = nullptr;
 
     QLabel *m_lblGitVersionInfo = nullptr;

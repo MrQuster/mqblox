@@ -1,3 +1,4 @@
+#include <QClipboard>
 #include <QScrollBar>
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
@@ -90,7 +91,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_soberCtrl = new SoberController(&m_settingsMgr, this);
     m_apiClient = new RobloxApiClient(this);
 
-    setWindowTitle(tr("MqBlox v33.0 [HyperOS 4 Liquid Glass]"));
+    setWindowTitle(tr("MqBlox v34.0 [HyperOS 4 Liquid Glass]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
     if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -273,7 +274,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox v33.0 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox v34.0 — HyperOS 4 Liquid Glass"));
 
         auto *menu = new QMenu(nullptr);
         menu->setStyleSheet(
@@ -404,7 +405,7 @@ void MainWindow::initUi() {
 
     auto *topBar = new QHBoxLayout();
     topBar->setSpacing(8);
-    auto *topHint = new QLabel(tr("MqBlox v33.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
+    auto *topHint = new QLabel(tr("MqBlox v34.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
     topHint->setObjectName("SubText");
     topBar->addWidget(topHint);
 
@@ -484,6 +485,10 @@ void MainWindow::initUi() {
 
     bottomBar->addWidget(m_lblAutosync);
     bottomBar->addWidget(m_btnSaveSettings);
+    auto *btnResetCat = new AnimButton(tr("↺ Сбросить вкладку"));
+    btnResetCat->setToolTip(tr("Сбросить параметры текущей категории к безопасным значениям по умолчанию"));
+    connect(btnResetCat, &QPushButton::clicked, this, [this]() { resetCurrentCategoryToDefaults(); });
+    bottomBar->addWidget(btnResetCat);
     bottomBar->addWidget(btnRejoin);
     bottomBar->addWidget(btnKill);
     bottomBar->addStretch();
@@ -937,21 +942,21 @@ QWidget *MainWindow::buildCameraModsPage() {
     cc->setContentsMargins(18, 16, 18, 16);
     cc->setSpacing(10);
 
-    auto *tCam = new QLabel(tr("🔥 Чит-Твики Движка, Бесконечный Зум и Модификации Видимости"));
+    auto *tCam = new QLabel(tr("🔥 Игровые Твики, Видимость и Параметры Камеры (Sober FastFlags)"));
     tCam->setObjectName("SectionTitle");
     tCam->setWordWrap(true);
     cc->addWidget(tCam);
 
     auto *infoNote = new QLabel(tr(
-        "⚡ <b>Все переключатели сохраняются мгновенно!</b> Чтобы применить изменения к уже открытой игре, "
-        "нажми кнопку <b>«🔄 Перезайти»</b> внизу окна."));
+        "🔄 <b>Требуется перезапуск игры:</b> все параметры ниже мгновенно записываются в <code>config.json</code>, "
+        "но вступают в силу при следующем старте или нажатии кнопки <b>«🔄 Перезайти»</b>."));
     infoNote->setObjectName("SubText");
     infoNote->setWordWrap(true);
     cc->addWidget(infoNote);
 
     auto *zoomRow = new QHBoxLayout();
     zoomRow->setSpacing(10);
-    m_chkInfZoom = new QCheckBox(tr("🔭 Разблокировать максимальное отдаление камеры (дистанция в студах):"));
+    m_chkInfZoom = new QCheckBox(tr("🔭 Базовый лимит отдаления камеры [🔄 перезапуск; работает, если плейс не блокирует Lua-скриптом]:"));
     m_spinMaxZoom = new QSpinBox();
     m_spinMaxZoom->setRange(128, 100000);
     m_spinMaxZoom->setSingleStep(500);
@@ -962,12 +967,12 @@ QWidget *MainWindow::buildCameraModsPage() {
 
     auto *presetRow = new QHBoxLayout();
     presetRow->setSpacing(10);
-    presetRow->addWidget(new QLabel(tr("Быстрый пресет зума:")));
+    presetRow->addWidget(new QLabel(tr("Быстрый пресет дистанции зума:")));
     m_comboCamZoom = new DarkComboBox();
     m_comboCamZoom->addItem(tr("Стандартный (128 студов)"), static_cast<int>(CameraZoomMode::Default));
     m_comboCamZoom->addItem(tr("Средний обзор (500 студов)"), static_cast<int>(CameraZoomMode::Medium500));
     m_comboCamZoom->addItem(tr("Дальний обзор (2000 студов)"), static_cast<int>(CameraZoomMode::Far2000));
-    m_comboCamZoom->addItem(tr("Космический обзор (99999 студов)"), static_cast<int>(CameraZoomMode::Cosmic9999));
+    m_comboCamZoom->addItem(tr("Максимум движка (99999 студов)"), static_cast<int>(CameraZoomMode::Cosmic9999));
     connect(m_comboCamZoom, &QComboBox::currentIndexChanged, this, [this](int idx) {
         if (m_isLoadingUi || !m_spinMaxZoom) return;
         int m = m_comboCamZoom->itemData(idx).toInt();
@@ -982,21 +987,25 @@ QWidget *MainWindow::buildCameraModsPage() {
 
     auto *netRow = new QHBoxLayout();
     netRow->setSpacing(10);
-    netRow->addWidget(new QLabel(tr("🌐 Сетевой профиль регистрации попаданий (HitReg MTU):")));
+    netRow->addWidget(new QLabel(tr("🌐 Сетевой пакетный профиль (MTU HitReg) [🔄 перезапуск]:")));
     m_comboNetOpt = new DarkComboBox();
-    m_comboNetOpt->addItem(tr("⚡ Ультра-отклик без задержки пакетов (MTU 1396 + Fast RakNet)"), static_cast<int>(NetworkProfile::UltraLowPing));
+    m_comboNetOpt->addItem(tr("⚡ Ультра-отклик без фрагментации (MTU 1396 + Fast RakNet)"), static_cast<int>(NetworkProfile::UltraLowPing));
     m_comboNetOpt->addItem(tr("Стандартный буфер (MTU 1492)"), static_cast<int>(NetworkProfile::Balanced));
     netRow->addWidget(m_comboNetOpt, 1);
     cc->addLayout(netRow);
 
-    m_chkFullBright = new QCheckBox(tr("☀️ Ночное зрение / FullBright (Видеть в темноте, убрать тени и темноту в хоррорах)"));
-    m_chkClearFog   = new QCheckBox(tr("🌿 Убрать всю высокую 3D-траву и густую листву (Чистый обзор карты)"));
-    m_chkNoclipCam  = new QCheckBox(tr("👻 Отключить отсечение объектов камерой (Видеть сквозь мелкие преграды / Culling Bypass)"));
-    m_chkHitboxes   = new QCheckBox(tr("📐 Упростить модели и кусты до простых коробок (Low-Poly LOD 0 — легче замечать игроков)"));
-    m_chkWallhop    = new QCheckBox(tr("⚡ Физика для Wallhop, Speed-глэтчей и прохода сквозь углы (Тикрейт физики 38760 Hz)"));
-    m_chkHudFps     = new QCheckBox(tr("📊 Включить счётчик FPS и кадрового времени на экране (FFlagDebugDisplayFPS + HUD)"));
+    m_chkFullBright = new QCheckBox(tr("☀️ Высветление тёмных локаций / FullBright (Voxel + тени 0 + без PostFX) [🔄 перезапуск]"));
+    m_chkClearFog   = new QCheckBox(tr("🌿 Убрать всю высокую 3D-траву на ландшафте (Чистый обзор поверхности) [🔄 перезапуск]"));
+    m_chkHitboxes   = new QCheckBox(tr("📐 Упростить геометрию дальних объектов и кустов (Low-Poly LOD 0) [🔄 перезапуск]"));
+    m_chkHudFps     = new QCheckBox(tr("📊 Включить счётчик FPS на экране (FFlagDebugDisplayFPS + драйверный HUD) [🔄 перезапуск]"));
 
-    for (QCheckBox *chk : {m_chkFullBright, m_chkClearFog, m_chkNoclipCam, m_chkHitboxes, m_chkWallhop, m_chkHudFps, m_chkInfZoom}) {
+    // Заблокированные на стороне Sober/Roblox флаги помечаем честно как недоступные (Disabled + пояснение)
+    m_chkNoclipCam  = new QCheckBox(tr("🔒 Камера сквозь стены (PopperCam) — недоступно: флаг заблокирован фильтром безопасности Sober"));
+    m_chkNoclipCam->setEnabled(false);
+    m_chkWallhop    = new QCheckBox(tr("🔒 Ускорение тикрейта физики (S2PhysicsSenderRate) — недоступно: игнорируется защитой Roblox/Sober"));
+    m_chkWallhop->setEnabled(false);
+
+    for (QCheckBox *chk : {m_chkFullBright, m_chkClearFog, m_chkHitboxes, m_chkHudFps, m_chkNoclipCam, m_chkWallhop, m_chkInfZoom}) {
         if (chk != m_chkInfZoom) cc->addWidget(chk);
         connect(chk, &QAbstractButton::toggled, this, [this]() { triggerInstantAutosave(); });
     }
@@ -1010,24 +1019,47 @@ QWidget *MainWindow::buildCameraModsPage() {
     cm->setContentsMargins(18, 16, 18, 16);
     cm->setSpacing(10);
 
-    auto *tm = new QLabel(tr("📦 Проверка записанных чит-флагов (config.json) и Моды (asset_overlay)"));
+    auto *tm = new QLabel(tr("🩺 Диагностика Sober, Проверка config.json и Папка модов"));
     tm->setObjectName("SectionTitle");
     cm->addWidget(tm);
 
     auto *rMods = new QHBoxLayout();
-    auto *bShowCfg = new AnimButton(tr("🔍 Проверить сохранённый config.json"), nullptr, QColor(16, 185, 129));
-    auto *bOpenOv  = new AnimButton(tr("📂 Папка модов (asset_overlay)"));
-    auto *bClean   = new AnimButton(tr("🧹 Очистить кэш карт"));
+    auto *bShowCfg = new AnimButton(tr("🔍 Проверить config.json"), nullptr, QColor(16, 185, 129));
+    auto *bCopyDiag = new AnimButton(tr("📋 Скопировать отчёт диагностики"), nullptr, QColor(56, 189, 248));
+    auto *bOpenOv  = new AnimButton(tr("📂 Папка модов"));
+    auto *bClean   = new AnimButton(tr("🧹 Очистить кэш"));
 
     connect(bShowCfg, &QPushButton::clicked, this, [this]() {
         saveSettingsNow(true);
         QFile cf(m_settingsMgr.soberBaseDir() + "/config/sober/config.json");
         if (cf.open(QIODevice::ReadOnly)) {
             m_logView->clear();
-            m_logView->append("✓ Файл ~/.var/app/org.vinegarhq.Sober/config/sober/config.json успешно сохранён:\n");
+            m_logView->append("✓ Актуальный файл ~/.var/app/org.vinegarhq.Sober/config/sober/config.json:\n");
             m_logView->append(QString::fromUtf8(cf.readAll()));
             cf.close();
         }
+    });
+    connect(bCopyDiag, &QPushButton::clicked, this, [this]() {
+        QString cfgPath = m_settingsMgr.soberBaseDir() + "/config/sober/config.json";
+        bool soberInstalled = QFileInfo::exists(m_settingsMgr.soberBaseDir());
+        QString report = QString(
+            "=== MqBlox v34.0 Diagnostic Report ===\n"
+            "Version: v34.0 (Schema 34)\n"
+            "Wayland/X11 Platform: %1\n"
+            "Sober Directory Exists: %2 (%3)\n"
+            "Sober config.json Exists: %4\n"
+            "Backup config.json.mqblox.bak Exists: %5\n"
+            "Graphics API: %6 | Target FPS: %7\n")
+            .arg(QGuiApplication::platformName())
+            .arg(soberInstalled ? "YES" : "NO")
+            .arg(m_settingsMgr.soberBaseDir())
+            .arg(QFileInfo::exists(cfgPath) ? "YES" : "NO")
+            .arg(QFileInfo::exists(cfgPath + ".mqblox.bak") ? "YES" : "NO")
+            .arg(m_settingsMgr.settings().graphicsApi == GraphicsApi::Vulkan ? "Vulkan" : "OpenGL")
+            .arg(m_settingsMgr.settings().unlimitedFps ? 9999 : m_settingsMgr.settings().targetFps);
+        QApplication::clipboard()->setText(report);
+        m_logView->setPlainText(report);
+        enqueueToast(tr("📋 Отчёт диагностики скопирован в буфер обмена!"));
     });
     connect(bOpenOv, &QPushButton::clicked, this, [this]() {
         QString ov = m_settingsMgr.soberBaseDir() + "/data/sober/asset_overlay";
@@ -1043,6 +1075,7 @@ QWidget *MainWindow::buildCameraModsPage() {
     });
 
     rMods->addWidget(bShowCfg);
+    rMods->addWidget(bCopyDiag);
     rMods->addWidget(bOpenOv);
     rMods->addWidget(bClean);
     cm->addLayout(rMods);
@@ -1051,7 +1084,7 @@ QWidget *MainWindow::buildCameraModsPage() {
     m_logView = new QTextEdit();
     m_logView->setReadOnly(true);
     m_logView->document()->setMaximumBlockCount(1000);
-    m_logView->setMinimumHeight(160);
+    m_logView->setMinimumHeight(150);
     lay->addWidget(m_logView);
     return page;
 }
@@ -1162,12 +1195,85 @@ QWidget *MainWindow::buildUpdatesPage() {
 
 void MainWindow::refreshGitUpdateStatus() {
     if (!m_lblGitVersionInfo || !m_updateLogView) return;
-    m_lblGitVersionInfo->setText(tr("🟢 <b>Установлена актуальная версия MqBlox v33.0 [HyperOS 4 Liquid Glass]</b>"));
-    m_updateLogView->setPlainText(
-        "✦ [v33.0] Устранены лаги CPU от фонового видео: Ultra-HD кэш Pexels #39811262\n"
-        "✦ [v33.0] Исправлены отступы карточек (18x16 px) и швы внутри списков выбора\n"
-        "✦ [v33.0] Передана нативная работа с микрофоном напрямую в Sober (Esc -> Settings)"
-    );
+    m_updateProgressBar->setRange(0, 0);
+    m_updateProgressBar->setFormat(tr("⏳ Связь с GitHub (MrQuster/mqblox)..."));
+    auto *proc = new QProcess(this);
+    proc->setWorkingDirectory(QDir::homePath() + "/mqblox_v13_src");
+    connect(proc, &QProcess::finished, this, [this, proc](int code, QProcess::ExitStatus) {
+        QString out = QString::fromUtf8(proc->readAllStandardOutput()).trimmed();
+        proc->deleteLater();
+        m_updateProgressBar->setRange(0, 100);
+        m_updateProgressBar->setValue(100);
+        if (code != 0 || out.isEmpty()) {
+            m_lblGitVersionInfo->setText(tr("🟡 <b>Автономный режим — работает локальная версия MqBlox v34.0</b>"));
+            m_updateProgressBar->setFormat(tr("⚠️ Нет сети или репозиторий недоступен (текущая версия сохранена)"));
+            return;
+        }
+        bool upToDate = out.startsWith("UP_TO_DATE");
+        if (upToDate) {
+            m_lblGitVersionInfo->setText(tr("🟢 <b>Уже установлена последняя версия MqBlox v34.0 [HyperOS 4 Liquid Glass]</b>"));
+            m_updateProgressBar->setFormat(tr("✓ Установлена актуальная версия"));
+        } else {
+            m_lblGitVersionInfo->setText(tr("🔵 <b>Доступно новое обновление в репозитории MrQuster/mqblox!</b>"));
+            m_updateProgressBar->setFormat(tr("⬇️ Нажмите «Установить обнову с GitHub» для обновления"));
+        }
+        int nl = out.indexOf('\n');
+        m_updateLogView->setPlainText(nl != -1 ? out.mid(nl + 1) : out);
+    });
+    proc->start("bash", QStringList{"-c",
+        "git fetch origin main 2>/dev/null || exit 1; "
+        "LOCAL=$(git rev-parse HEAD 2>/dev/null); "
+        "REMOTE=$(git rev-parse origin/main 2>/dev/null); "
+        "if [ \"$LOCAL\" = \"$REMOTE\" ]; then echo UP_TO_DATE; else echo UPDATE_AVAILABLE; fi; "
+        "git log -n 10 --pretty=format:'✦ [%h] %s (%cr)' origin/main 2>/dev/null"
+    });
+}
+
+void MainWindow::filterSettingsBySearch(const QString &query) {
+    QString q = query.trimmed();
+    QWidget *page = m_pages->currentWidget();
+    if (!page) return;
+    for (QFrame *card : page->findChildren<QFrame *>("GlassCard")) {
+        if (q.isEmpty()) {
+            card->setVisible(true);
+            continue;
+        }
+        bool match = false;
+        for (QLabel *l : card->findChildren<QLabel *>()) {
+            if (l->text().contains(q, Qt::CaseInsensitive)) { match = true; break; }
+        }
+        if (!match) {
+            for (QCheckBox *c : card->findChildren<QCheckBox *>()) {
+                if (c->text().contains(q, Qt::CaseInsensitive)) { match = true; break; }
+            }
+        }
+        card->setVisible(match);
+    }
+}
+
+void MainWindow::resetCurrentCategoryToDefaults() {
+    AppSettings def;
+    AppSettings &s = m_settingsMgr.settings();
+    int idx = m_pages->currentIndex();
+    if (idx == 2) { // Система и Внешний вид
+        s.resMode = def.resMode; s.gpuVendor = def.gpuVendor; s.cpuVendor = def.cpuVendor;
+        s.windowDriver = def.windowDriver; s.glassBlurStrength = def.glassBlurStrength;
+        s.glassOpacityPct = def.glassOpacityPct; s.borderBrightnessPct = def.borderBrightnessPct;
+        s.chameleonEnabled = def.chameleonEnabled; s.reducedMotion = def.reducedMotion;
+        s.videoFpsLimit = def.videoFpsLimit; s.accentPreset = def.accentPreset;
+    } else if (idx == 3) { // Графика
+        s.graphicsApi = def.graphicsApi; s.optMode = def.optMode; s.lighting = def.lighting;
+        s.textureQuality = def.textureQuality; s.msaa = def.msaa; s.targetFps = def.targetFps;
+        s.unlimitedFps = def.unlimitedFps; s.frmQualityLevel = def.frmQualityLevel;
+        s.noShadows = def.noShadows; s.ultraShadows = def.ultraShadows; s.noPostFx = def.noPostFx;
+    } else if (idx == 4) { // Игровые твики
+        s.unlockInfiniteZoom = def.unlockInfiniteZoom; s.customMaxZoom = def.customMaxZoom;
+        s.fullBright = def.fullBright; s.clearFog = def.clearFog; s.showHitboxes = def.showHitboxes;
+        s.showHudFps = def.showHudFps; s.netProfile = def.netProfile;
+    }
+    syncUiFromSettings();
+    saveSettingsNow(true);
+    enqueueToast(tr("↺ Параметры текущей вкладки сброшены к безопасным значениям по умолчанию!"));
 }
 
 void MainWindow::syncUiFromSettings() {
@@ -1194,7 +1300,6 @@ void MainWindow::syncUiFromSettings() {
     m_chkReturnMq->setChecked(s.returnToMqBloxOnLeave);
     m_chkPauseWeb->setChecked(s.pauseWebInGame);
     m_chkAnimBg->setChecked(s.animBg);
-    if (m_rootCosmos) m_rootCosmos->setAnimationEnabled(s.animBg);
     m_chkCloseToTray->setChecked(s.closeToTray);
     m_chkGlThread->setChecked(s.glThread);
     m_chkAsyncShaders->setChecked(s.asyncShaders);
@@ -1224,10 +1329,30 @@ void MainWindow::syncUiFromSettings() {
     if (m_chkClearFog) m_chkClearFog->setChecked(s.clearFog);
     if (m_spinMaxZoom) m_spinMaxZoom->setValue(s.customMaxZoom);
     if (m_chkInfZoom) m_chkInfZoom->setChecked(s.unlockInfiniteZoom);
-    if (m_chkNoclipCam) m_chkNoclipCam->setChecked(s.noclipCamWalls);
+    if (m_chkNoclipCam) m_chkNoclipCam->setChecked(false);
     if (m_chkFullBright) m_chkFullBright->setChecked(s.fullBright);
     if (m_chkHitboxes) m_chkHitboxes->setChecked(s.showHitboxes);
-    if (m_chkWallhop) m_chkWallhop->setChecked(s.wallhopPhysics);
+    if (m_chkWallhop) m_chkWallhop->setChecked(false);
+
+    if (m_comboBlurStrength) {
+        int bIdx = m_comboBlurStrength->findData(s.glassBlurStrength);
+        m_comboBlurStrength->setCurrentIndex(bIdx >= 0 ? bIdx : 1);
+    }
+    if (m_spinGlassOpacity) m_spinGlassOpacity->setValue(s.glassOpacityPct);
+    if (m_spinBorderBright) m_spinBorderBright->setValue(s.borderBrightnessPct);
+    if (m_chkChameleon) m_chkChameleon->setChecked(s.chameleonEnabled);
+    if (m_chkReducedMotion) m_chkReducedMotion->setChecked(s.reducedMotion);
+    if (m_comboVideoFps) {
+        int fIdx = m_comboVideoFps->findData(s.videoFpsLimit);
+        m_comboVideoFps->setCurrentIndex(fIdx >= 0 ? fIdx : 0);
+    }
+    if (m_comboAccent) m_comboAccent->setCurrentIndex(s.accentPreset);
+
+    if (m_rootCosmos) {
+        m_rootCosmos->setAnimationEnabled(s.animBg);
+        m_rootCosmos->configureVisuals(s.glassBlurStrength, s.glassOpacityPct, s.borderBrightnessPct,
+                                       s.chameleonEnabled, s.reducedMotion, s.videoFpsLimit, s.accentPreset);
+    }
 
     m_inpPlace->setText(s.lastPlaceInput);
     m_fflagsEditor->setPlainText(s.customFflagsJson);
@@ -1259,7 +1384,6 @@ void MainWindow::collectSettingsFromUi() {
     s.returnToMqBloxOnLeave = m_chkReturnMq->isChecked();
     s.pauseWebInGame = m_chkPauseWeb->isChecked();
     s.animBg = m_chkAnimBg->isChecked();
-    if (m_rootCosmos) m_rootCosmos->setAnimationEnabled(s.animBg);
     s.closeToTray = m_chkCloseToTray->isChecked();
     s.glThread = m_chkGlThread->isChecked();
     s.asyncShaders = m_chkAsyncShaders->isChecked();
@@ -1289,10 +1413,22 @@ void MainWindow::collectSettingsFromUi() {
     if (m_chkClearFog) s.clearFog = m_chkClearFog->isChecked();
     if (m_spinMaxZoom) s.customMaxZoom = m_spinMaxZoom->value();
     if (m_chkInfZoom) s.unlockInfiniteZoom = m_chkInfZoom->isChecked();
-    if (m_chkNoclipCam) s.noclipCamWalls = m_chkNoclipCam->isChecked();
     if (m_chkFullBright) s.fullBright = m_chkFullBright->isChecked();
     if (m_chkHitboxes) s.showHitboxes = m_chkHitboxes->isChecked();
-    if (m_chkWallhop) s.wallhopPhysics = m_chkWallhop->isChecked();
+
+    if (m_comboBlurStrength) s.glassBlurStrength = m_comboBlurStrength->currentData().toInt();
+    if (m_spinGlassOpacity) s.glassOpacityPct = m_spinGlassOpacity->value();
+    if (m_spinBorderBright) s.borderBrightnessPct = m_spinBorderBright->value();
+    if (m_chkChameleon) s.chameleonEnabled = m_chkChameleon->isChecked();
+    if (m_chkReducedMotion) s.reducedMotion = m_chkReducedMotion->isChecked();
+    if (m_comboVideoFps) s.videoFpsLimit = m_comboVideoFps->currentData().toInt();
+    if (m_comboAccent) s.accentPreset = m_comboAccent->currentData().toInt();
+
+    if (m_rootCosmos) {
+        m_rootCosmos->setAnimationEnabled(s.animBg);
+        m_rootCosmos->configureVisuals(s.glassBlurStrength, s.glassOpacityPct, s.borderBrightnessPct,
+                                       s.chameleonEnabled, s.reducedMotion, s.videoFpsLimit, s.accentPreset);
+    }
 
     s.lastPlaceInput = m_inpPlace->text().trimmed();
     s.customFflagsJson = m_fflagsEditor->toPlainText();

@@ -26,6 +26,8 @@ struct AccountProfile {
 };
 
 struct AppSettings {
+    int schemaVersion = 34;
+
     ResolutionMode resMode = ResolutionMode::Auto;
     GpuVendorMode gpuVendor = GpuVendorMode::Auto;
     CpuVendorMode cpuVendor = CpuVendorMode::Auto;
@@ -74,7 +76,7 @@ struct AppSettings {
     bool gamepadSupport = true;
     bool enableHiDpi = false;
 
-    // Чит-твики и модификации движка
+    // Игровые твики
     bool showHudFps = false;
     bool clearFog = false;
     int customMaxZoom = 99999;
@@ -83,6 +85,15 @@ struct AppSettings {
     bool fullBright = false;
     bool showHitboxes = false;
     bool wallhopPhysics = false;
+
+    // Настройки внешнего вида HyperOS 4 Liquid Glass (v34.0)
+    int glassBlurStrength = 4;     // 2 = Низкое, 4 = Среднее, 7 = Высокое
+    int glassOpacityPct = 10;      // Прозрачность подложки (4..35%)
+    int borderBrightnessPct = 100; // Яркость градиентной рамки 1px (40..150%)
+    bool chameleonEnabled = true;  // Адаптация цвета рамок под видеофон
+    bool reducedMotion = false;    // Режим «Меньше анимаций»
+    int videoFpsLimit = 30;        // 15, 24 или 30 FPS
+    int accentPreset = 0;          // 0=Голубой, 1=Золотой, 2=Изумрудный, 3=Фиолетовый
 
     QString lastPlaceInput;
     QString customFflagsJson = "{}";

@@ -21,10 +21,24 @@ public:
     void setWebTabActive(bool webActive);
     void loadCustomVideoFile(const QString &filePath);
 
+    // Настройки внешнего вида Liquid Glass v34.0
+    void configureVisuals(int blurStrength,
+                          int glassOpacityPct,
+                          int borderBrightnessPct,
+                          bool chameleon,
+                          bool reducedMotion,
+                          int fpsLimit,
+                          int accentPreset);
+
+    int glassOpacityPct() const { return m_glassOpacityPct.load(); }
+    int borderBrightnessPct() const { return m_borderBrightnessPct.load(); }
+    bool isChameleonEnabled() const { return m_chameleonEnabled.load(); }
+    bool isReducedMotion() const { return m_reducedMotion.load(); }
+    QColor fixedAccentColor() const;
+
     const QPixmap &sharpBackdrop() const { return m_scaledSharp; }
     const QPixmap &frostedBackdrop() const { return m_scaledFrosted; }
 
-    // Мгновенное сэмплирование цвета фона прямо под координатами любого элемента интерфейса
     QColor sampleAdaptiveColor(const QWidget *caller, const QPointF &localPos) const;
     QColor ambientPrimary() const { return m_ambientPrimary; }
     QColor ambientSecondary() const { return m_ambientSecondary; }
@@ -34,6 +48,7 @@ protected:
     void resizeEvent(QResizeEvent *e) override;
     void showEvent(QShowEvent *e) override;
     void hideEvent(QHideEvent *e) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void startDecoderThread();
@@ -43,6 +58,7 @@ private:
     void loadBestFallbackImage();
     static QImage buildCrystalFrostedImage(const QImage &src, int radius);
     static void buildAdaptiveColorMap(const QImage &srcSmall,
+                                      const QImage &prevMap,
                                       QImage &outMap,
                                       QColor &outPrimary,
                                       QColor &outSecondary);
@@ -53,6 +69,14 @@ private:
     std::atomic<bool> m_frameQueued{false};
     std::atomic<int> m_targetW{1100};
     std::atomic<int> m_targetH{660};
+
+    std::atomic<int> m_blurStrength{4};
+    std::atomic<int> m_glassOpacityPct{10};
+    std::atomic<int> m_borderBrightnessPct{100};
+    std::atomic<bool> m_chameleonEnabled{true};
+    std::atomic<bool> m_reducedMotion{false};
+    std::atomic<int> m_videoFps{30};
+    std::atomic<int> m_accentPreset{0};
 
     std::mutex m_pathMutex;
     QString m_videoPath;

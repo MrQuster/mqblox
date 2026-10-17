@@ -1,6 +1,7 @@
 #include "core/SettingsManager.hpp"
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -8,12 +9,14 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QThread>
+#include <algorithm>
 
 namespace mqblox {
 
 SettingsManager::SettingsManager() {
     QDir().mkpath(mqDir());
     QDir().mkpath(accountsDir());
+    QDir().mkpath(QDir::homePath() + "/.config/mqblox");
     m_accounts.push_back(AccountProfile{});
 }
 
@@ -62,11 +65,19 @@ QString SettingsManager::parsePlaceUri(const QString &input) {
 }
 
 void SettingsManager::loadAll() {
-    QFile f(mqDir() + "/settings_v13.json");
-    if (!f.open(QIODevice::ReadOnly)) return;
-    QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
-    f.close();
+    QString cfgV34 = QDir::homePath() + "/.config/mqblox/settings_v34.json";
+    QString legacyV13 = mqDir() + "/settings_v13.json";
 
+    QString loadPath = QFileInfo::exists(cfgV34) ? cfgV34 : legacyV13;
+    QFile f(loadPath);
+    if (!f.open(QIODevice::ReadOnly)) return;
+
+    QJsonParseError perr;
+    QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &perr);
+    f.close();
+    if (perr.error != QJsonParseError::NoError || !doc.isObject()) return;
+
+    QJsonObject root = doc.object();
     m_activeAccountId = root.value("activeAccountId").toString("default");
     QJsonArray arr = root.value("accounts").toArray();
     if (!arr.isEmpty()) {
@@ -87,6 +98,7 @@ void SettingsManager::loadAll() {
     QJsonObject s = root.value("settings").toObject();
     if (s.isEmpty()) return;
 
+    m_settings.schemaVersion = 34;
     m_settings.resMode = static_cast<ResolutionMode>(s.value("resMode").toInt(0));
     m_settings.gpuVendor = static_cast<GpuVendorMode>(s.value("gpuVendor").toInt(0));
     m_settings.cpuVendor = static_cast<CpuVendorMode>(s.value("cpuVendor").toInt(0));
@@ -99,9 +111,9 @@ void SettingsManager::loadAll() {
     m_settings.camZoom = static_cast<CameraZoomMode>(s.value("camZoom").toInt(3));
     m_settings.netProfile = static_cast<NetworkProfile>(s.value("netProfile").toInt(0));
 
-    m_settings.targetFps = s.value("targetFps").toInt(240);
+    m_settings.targetFps = std::clamp(s.value("targetFps").toInt(240), 30, 9999);
     m_settings.unlimitedFps = s.value("unlimitedFps").toBool(false);
-    m_settings.frmQualityLevel = s.value("frmQualityLevel").toInt(0);
+    m_settings.frmQualityLevel = std::clamp(s.value("frmQualityLevel").toInt(0), 0, 21);
 
     m_settings.returnToMqBloxOnLeave = s.value("returnToMqBloxOnLeave").toBool(true);
     m_settings.pauseWebInGame = s.value("pauseWebInGame").toBool(true);
@@ -134,12 +146,20 @@ void SettingsManager::loadAll() {
 
     m_settings.showHudFps = s.value("showHudFps").toBool(false);
     m_settings.clearFog = s.value("clearFog").toBool(false);
-    m_settings.customMaxZoom = s.value("customMaxZoom").toInt(99999);
+    m_settings.customMaxZoom = std::clamp(s.value("customMaxZoom").toInt(99999), 128, 100000);
     m_settings.unlockInfiniteZoom = s.value("unlockInfiniteZoom").toBool(true);
     m_settings.noclipCamWalls = s.value("noclipCamWalls").toBool(false);
     m_settings.fullBright = s.value("fullBright").toBool(false);
     m_settings.showHitboxes = s.value("showHitboxes").toBool(false);
     m_settings.wallhopPhysics = s.value("wallhopPhysics").toBool(false);
+
+    m_settings.glassBlurStrength = std::clamp(s.value("glassBlurStrength").toInt(4), 1, 8);
+    m_settings.glassOpacityPct = std::clamp(s.value("glassOpacityPct").toInt(10), 4, 40);
+    m_settings.borderBrightnessPct = std::clamp(s.value("borderBrightnessPct").toInt(100), 30, 150);
+    m_settings.chameleonEnabled = s.value("chameleonEnabled").toBool(true);
+    m_settings.reducedMotion = s.value("reducedMotion").toBool(false);
+    m_settings.videoFpsLimit = std::clamp(s.value("videoFpsLimit").toInt(30), 15, 60);
+    m_settings.accentPreset = std::clamp(s.value("accentPreset").toInt(0), 0, 3);
 
     m_settings.lastPlaceInput = s.value("lastPlaceInput").toString();
     m_settings.customFflagsJson = s.value("customFflagsJson").toString("{}");
@@ -152,16 +172,17 @@ bool SettingsManager::saveAll(QString *errMsg) {
     QDir().mkpath(localApps);
     QString soberDesk = localApps + "/org.vinegarhq.Sober.desktop";
     if (m_settings.hideSoberDesktop) {
-        QFile sf(soberDesk);
+        QSaveFile sf(soberDesk);
         if (sf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             sf.write("[Desktop Entry]\nType=Application\nName=Sober\nNoDisplay=true\n");
-            sf.close();
+            sf.commit();
         }
     } else {
         QFile::remove(soberDesk);
     }
 
     QJsonObject s;
+    s["schemaVersion"] = 34;
     s["resMode"] = static_cast<int>(m_settings.resMode);
     s["gpuVendor"] = static_cast<int>(m_settings.gpuVendor);
     s["cpuVendor"] = static_cast<int>(m_settings.cpuVendor);
@@ -216,6 +237,14 @@ bool SettingsManager::saveAll(QString *errMsg) {
     s["showHitboxes"] = m_settings.showHitboxes;
     s["wallhopPhysics"] = m_settings.wallhopPhysics;
 
+    s["glassBlurStrength"] = m_settings.glassBlurStrength;
+    s["glassOpacityPct"] = m_settings.glassOpacityPct;
+    s["borderBrightnessPct"] = m_settings.borderBrightnessPct;
+    s["chameleonEnabled"] = m_settings.chameleonEnabled;
+    s["reducedMotion"] = m_settings.reducedMotion;
+    s["videoFpsLimit"] = m_settings.videoFpsLimit;
+    s["accentPreset"] = m_settings.accentPreset;
+
     s["lastPlaceInput"] = m_settings.lastPlaceInput;
     s["customFflagsJson"] = m_settings.customFflagsJson;
 
@@ -232,14 +261,21 @@ bool SettingsManager::saveAll(QString *errMsg) {
     }
 
     QJsonObject root;
+    root["schemaVersion"] = 34;
     root["activeAccountId"] = m_activeAccountId;
     root["accounts"] = arr;
     root["settings"] = s;
 
-    QSaveFile f(mqDir() + "/settings_v13.json");
-    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-        f.commit();
+    QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Indented);
+
+    QString cfgDir = QDir::homePath() + "/.config/mqblox";
+    QDir().mkpath(cfgDir);
+    for (const QString &target : {cfgDir + "/settings_v34.json", mqDir() + "/settings_v13.json"}) {
+        QSaveFile f(target);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            f.write(payload);
+            f.commit();
+        }
     }
     return true;
 }
@@ -251,34 +287,41 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
     QJsonParseError perr;
     QJsonDocument customDoc = QJsonDocument::fromJson(rawCustom.toUtf8(), &perr);
     if (perr.error != QJsonParseError::NoError || !customDoc.isObject()) {
-        if (errMsg) *errMsg = "Ошибка JSON в FastFlags: " + perr.errorString();
+        if (errMsg) *errMsg = "Ошибка синтаксиса JSON в FastFlags: " + perr.errorString();
         return false;
     }
 
-    // Сохраняем сторонние ключи в существующем config.json Sober, если они там были (например touch_mode)
     QString cfgDir = soberBaseDir() + "/config/sober";
     QDir().mkpath(cfgDir);
     QString cfgPath = cfgDir + "/config.json";
+    QString bakPath = cfgDir + "/config.json.mqblox.bak";
+
+    // Создаём резервную копию оригинального config.json перед первой модификацией
+    if (QFileInfo::exists(cfgPath) && !QFileInfo::exists(bakPath)) {
+        QFile::copy(cfgPath, bakPath);
+    }
 
     QJsonObject soberCfg;
     {
         QFile oldF(cfgPath);
         if (oldF.open(QIODevice::ReadOnly)) {
-            QJsonObject existing = QJsonDocument::fromJson(oldF.readAll()).object();
-            if (!existing.isEmpty()) soberCfg = existing;
+            QJsonParseError oldErr;
+            QJsonDocument oldDoc = QJsonDocument::fromJson(oldF.readAll(), &oldErr);
+            if (oldErr.error == QJsonParseError::NoError && oldDoc.isObject()) {
+                soberCfg = oldDoc.object();
+            }
             oldF.close();
         }
     }
 
+    // Пользовательские FFlags из редактора имеют базовый приоритет, поверх которых записываются переключатели UI
     QJsonObject fflags = customDoc.object();
 
-    // 1. Разблокировка FPS
     int fpsVal = m_settings.unlimitedFps ? 9999 : m_settings.targetFps;
     fflags["DFIntTaskSchedulerTargetFps"] = fpsVal;
     fflags["FFlagTaskSchedulerLimitTargetFpsTo2402"] = false;
     fflags["FFlagGameBasicSettingsFramerateCap5"] = true;
 
-    // 2. Графический API
     if (m_settings.graphicsApi == GraphicsApi::Vulkan) {
         fflags["FFlagDebugGraphicsPreferVulkan"] = true;
         fflags["FFlagDebugGraphicsDisableOpenGL"] = true;
@@ -287,7 +330,6 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["FFlagDebugGraphicsPreferVulkan"] = false;
     }
 
-    // 3. Освещение
     if (m_settings.lighting == LightingMode::Voxel || m_settings.fullBright) {
         fflags["DFFlagDebugRenderForceTechnologyVoxel"] = true;
         fflags["FFlagDebugForceFutureIsBrightPhase2"] = false;
@@ -298,14 +340,12 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["FFlagDebugForceFutureIsBrightPhase3"] = true;
     }
 
-    // 4. Качество текстур (Level 0..3)
     if (m_settings.textureQuality != TextureQuality::Auto) {
         int texLvl = static_cast<int>(m_settings.textureQuality) - 1;
         fflags["DFFlagTextureQualityOverrideEnabled"] = true;
         fflags["DFIntTextureQualityOverride"] = texLvl;
     }
 
-    // 5. Сглаживание MSAA
     int msaaSamples = 0;
     if (m_settings.msaa == MsaaMode::X2) msaaSamples = 2;
     else if (m_settings.msaa == MsaaMode::X4) msaaSamples = 4;
@@ -314,18 +354,15 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["FIntDebugForceMSAASamples"] = msaaSamples;
     }
 
-    // 6. Уровень графики FRM (1..21)
     if (m_settings.frmQualityLevel > 0) {
         fflags["DFIntDebugFRMQualityLevelOverride"] = m_settings.frmQualityLevel;
         fflags["FIntRomarkStartWithGraphicQualityLevel"] = m_settings.frmQualityLevel;
     }
 
-    // 7. ЧИТ-ФУНКЦИЯ: FullBright (Ночное зрение без темноты, теней и тумана)
     if (m_settings.noShadows || m_settings.fullBright) {
         fflags["FIntRenderShadowIntensity"] = 0;
         fflags["DFIntCullFactorPixelThresholdShadowMapHighQuality"] = 2147483647;
         fflags["DFIntCullFactorPixelThresholdShadowMapLowQuality"] = 2147483647;
-        fflags["FFlagDebugRenderingSetDeterministic"] = true;
     } else if (m_settings.ultraShadows) {
         fflags["FIntRenderShadowIntensity"] = 100;
         fflags["FIntRenderShadowMapBias"] = 0;
@@ -338,13 +375,11 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["FFlagDebugSkyGray"] = true;
     }
 
-    // 8. ЧИТ-ФУНКЦИЯ: Упрощение стен и объектов / X-Ray LOD (позволяет легче видеть сквозь сложные декорации)
     if (m_settings.lowMeshes || m_settings.showHitboxes) {
         fflags["DFIntCSGLevelOfDetailSwitchingDistance"] = 0;
         fflags["DFIntCSGLevelOfDetailSwitchingDistanceL12"] = 0;
         fflags["DFIntCSGLevelOfDetailSwitchingDistanceL23"] = 0;
         fflags["DFIntCSGLevelOfDetailSwitchingDistanceL34"] = 0;
-        fflags["FIntBootstrapperTelemetryReporting HundredthsPercent"] = 0;
     }
 
     if (m_settings.lowRamFflags) {
@@ -353,33 +388,16 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["DFIntTextureCompositorActiveJobs"] = 1;
     }
 
-    // 9. ЧИТ-ФУНКЦИЯ: Бесконечный Зум Камеры (Zoom Unlocker + FarZPlane)
     if (m_settings.unlockInfiniteZoom) {
         fflags["FIntCameraMaxZoomDistance"] = m_settings.customMaxZoom;
-        fflags["DFIntCameraMaxZoomDistance"] = m_settings.customMaxZoom;
     }
 
-    // 10. ЧИТ-ФУНКЦИЯ: Просвет преград камеры и убирание куллинга (PopperCam / Culling Bypass)
-    if (m_settings.noclipCamWalls) {
-        fflags["DFIntCullFactorPixelThresholdMainViewHighQuality"] = 10000;
-        fflags["DFIntCullFactorPixelThresholdMainViewLowQuality"] = 10000;
-    }
-
-    // 11. ЧИТ-ФУНКЦИЯ: Физика для Wallhop / High-Jump / Speed-Glitch
-    if (m_settings.wallhopPhysics) {
-        fflags["DFIntS2PhysicsSenderRate"] = 38760;
-        fflags["DFIntMaxMissedWorldStepsRemembered"] = 1000;
-    }
-
-    // 12. ЧИТ-ФУНКЦИЯ: Полное удаление 3D-травы и листвы (Clear Map)
     if (m_settings.clearFog) {
         fflags["FIntFRMMinGrassDistance"] = 0;
         fflags["FIntFRMMaxGrassDistance"] = 0;
         fflags["FIntRenderGrassDetailStrands"] = 0;
-        fflags["FIntGrassMovementReducedMotionFactor"] = 0;
     }
 
-    // 13. Сетевой профиль пакетов (HitReg Low Ping)
     if (m_settings.netProfile == NetworkProfile::UltraLowPing) {
         fflags["DFIntConnectionMTUSize"] = 1396;
         fflags["FIntRakNetResendBufferArrayLength"] = 128;
@@ -387,7 +405,6 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["DFIntConnectionMTUSize"] = 1492;
     }
 
-    // 14. Счётчик FPS на экране
     if (m_settings.showHudFps) {
         fflags["FFlagDebugDisplayFPS"] = true;
     }
@@ -419,14 +436,17 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
 
     QByteArray jsonBytes = QJsonDocument(soberCfg).toJson(QJsonDocument::Indented);
 
-    // Записываем атомарно в config.json Sober
     QSaveFile cf(cfgPath);
-    if (cf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        cf.write(jsonBytes);
-        cf.commit();
+    if (!cf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (errMsg) *errMsg = "Не удалось открыть config.json для записи";
+        return false;
+    }
+    cf.write(jsonBytes);
+    if (!cf.commit()) {
+        if (errMsg) *errMsg = "Ошибка атомарного сохранения config.json";
+        return false;
     }
 
-    // Дополнительно дублируем в ClientAppSettings.json (для сборок Roblox/Wine/Sober, читающих напрямую из ClientSettings)
     QString clientSettingsDir = soberBaseDir() + "/data/sober/appData/ClientSettings";
     QDir().mkpath(clientSettingsDir);
     QSaveFile csf(clientSettingsDir + "/ClientAppSettings.json");
@@ -434,12 +454,13 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         csf.write(QJsonDocument(fflags).toJson(QJsonDocument::Indented));
         csf.commit();
     }
-
     return true;
 }
 
 bool SettingsManager::exportPresetToFile(const QString &filePath) const {
-    QFile src(mqDir() + "/settings_v13.json");
+    QString srcPath = QDir::homePath() + "/.config/mqblox/settings_v34.json";
+    if (!QFileInfo::exists(srcPath)) srcPath = mqDir() + "/settings_v13.json";
+    QFile src(srcPath);
     if (!src.exists()) return false;
     QFile::remove(filePath);
     return src.copy(filePath);
@@ -448,19 +469,24 @@ bool SettingsManager::exportPresetToFile(const QString &filePath) const {
 bool SettingsManager::importPresetFromFile(const QString &filePath, QString *errMsg) {
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly)) {
-        if (errMsg) *errMsg = "Не удалось открыть файл пресета";
+        if (errMsg) *errMsg = "Не удалось открыть файл профиля";
         return false;
     }
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &err);
+    f.close();
     if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-        if (errMsg) *errMsg = "Некорректный JSON файла пресета";
+        if (errMsg) *errMsg = "Некорректный JSON файла профиля";
         return false;
     }
-    QFile dst(mqDir() + "/settings_v13.json");
-    if (dst.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        dst.write(doc.toJson(QJsonDocument::Indented));
-        dst.close();
+    QString cfgDir = QDir::homePath() + "/.config/mqblox";
+    QDir().mkpath(cfgDir);
+    for (const QString &dstPath : {cfgDir + "/settings_v34.json", mqDir() + "/settings_v13.json"}) {
+        QSaveFile dst(dstPath);
+        if (dst.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            dst.write(doc.toJson(QJsonDocument::Indented));
+            dst.commit();
+        }
     }
     loadAll();
     return saveAll(errMsg);
