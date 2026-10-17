@@ -79,6 +79,7 @@ public:
     bool isChameleonEnabled() const { return m_chameleonEnabled.load(); }
     bool isReducedMotion() const { return m_reducedMotion.load(); }
     QColor fixedAccentColor() const;
+    bool isLightThemeActive() const;
     QColor resolveTextColor(const QColor &surfaceTint) const;
 
     const QPixmap &sharpBackdrop() const { return m_scaledSharp; }
@@ -135,6 +136,8 @@ private:
 
     std::mutex m_pathMutex;
     QString m_videoPath;
+    QString m_defaultVideoPath;
+    QString m_customFilePath;
 
     QTimer *m_resizeDebounce = nullptr;
     QImage m_fallbackImg;

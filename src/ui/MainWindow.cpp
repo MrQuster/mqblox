@@ -92,7 +92,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_soberCtrl = new SoberController(&m_settingsMgr, this);
     m_apiClient = new RobloxApiClient(this);
 
-    setWindowTitle(tr("MqBlox v34.5 [HyperOS 4 Liquid Glass]"));
+    setWindowTitle(tr("MqBlox v34.6 [HyperOS 4 Liquid Glass]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
     if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -275,7 +275,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox v34.5 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox v34.6 — HyperOS 4 Liquid Glass"));
 
         auto *menu = new QMenu(nullptr);
         menu->setStyleSheet(
@@ -406,7 +406,7 @@ void MainWindow::initUi() {
 
     auto *topBar = new QHBoxLayout();
     topBar->setSpacing(8);
-    auto *topHint = new QLabel(tr("MqBlox v34.5 • HyperOS 4 Liquid Glass • Zero-Lag"));
+    auto *topHint = new QLabel(tr("MqBlox v34.6 • HyperOS 4 Liquid Glass • Zero-Lag"));
     topHint->setObjectName("SubText");
     topBar->addWidget(topHint);
 
@@ -1048,8 +1048,8 @@ QWidget *MainWindow::buildCameraModsPage() {
         QString cfgPath = m_settingsMgr.soberBaseDir() + "/config/sober/config.json";
         bool soberInstalled = QFileInfo::exists(m_settingsMgr.soberBaseDir());
         QString report = QString(
-            "=== MqBlox v34.5 Diagnostic Report ===\n"
-            "Version: v34.5 (Schema 34)\n"
+            "=== MqBlox v34.6 Diagnostic Report ===\n"
+            "Version: v34.6 (Schema 34)\n"
             "Wayland/X11 Platform: %1\n"
             "Sober Directory Exists: %2 (%3)\n"
             "Sober config.json Exists: %4\n"
@@ -1210,13 +1210,13 @@ void MainWindow::refreshGitUpdateStatus() {
         m_updateProgressBar->setRange(0, 100);
         m_updateProgressBar->setValue(100);
         if (code != 0 || out.isEmpty()) {
-            m_lblGitVersionInfo->setText(tr("🟡 <b>Автономный режим — работает локальная версия MqBlox v34.5</b>"));
+            m_lblGitVersionInfo->setText(tr("🟡 <b>Автономный режим — работает локальная версия MqBlox v34.6</b>"));
             m_updateProgressBar->setFormat(tr("⚠️ Нет сети или репозиторий недоступен (текущая версия сохранена)"));
             return;
         }
         bool upToDate = out.startsWith("UP_TO_DATE");
         if (upToDate) {
-            m_lblGitVersionInfo->setText(tr("🟢 <b>Уже установлена последняя версия MqBlox v34.5 [HyperOS 4 Liquid Glass]</b>"));
+            m_lblGitVersionInfo->setText(tr("🟢 <b>Уже установлена последняя версия MqBlox v34.6 [HyperOS 4 Liquid Glass]</b>"));
             m_updateProgressBar->setFormat(tr("✓ Установлена актуальная версия"));
         } else {
             m_lblGitVersionInfo->setText(tr("🔵 <b>Доступно новое обновление в репозитории MrQuster/mqblox!</b>"));
@@ -1253,6 +1253,19 @@ void MainWindow::filterSettingsBySearch(const QString &query) {
             if (!match) {
                 for (QCheckBox *c : card->findChildren<QCheckBox *>()) {
                     if (c->text().contains(q, Qt::CaseInsensitive)) { match = true; break; }
+                }
+            }
+            if (!match) {
+                for (QComboBox *cmb : card->findChildren<QComboBox *>()) {
+                    for (int k = 0; k < cmb->count(); ++k) {
+                        if (cmb->itemText(k).contains(q, Qt::CaseInsensitive)) { match = true; break; }
+                    }
+                    if (match) break;
+                }
+            }
+            if (!match) {
+                for (QPushButton *btn : card->findChildren<QPushButton *>()) {
+                    if (btn->text().contains(q, Qt::CaseInsensitive)) { match = true; break; }
                 }
             }
             card->setVisible(match);
@@ -1316,29 +1329,44 @@ void MainWindow::applyLayoutAndTypographyLive() {
         m_rootCosmos->applyVisualSettings(s);
     }
 
-    // Применение масштаба шрифта и начертания на лету
     int scaledPx = std::clamp(int(s.fontSizePx * (s.uiScalePct / 100.0)), 10, 22);
-    QFont appFont = QApplication::font();
-    appFont.setStyle(QFont::StyleNormal);
-    appFont.setItalic(false);
-    appFont.setPixelSize(scaledPx);
-    appFont.setWeight(s.fontBoldness == 1 ? QFont::Bold : QFont::Normal);
-    QApplication::setFont(appFont);
+    int fontWeight = (s.fontBoldness == 1) ? 700 : 500;
+    bool lightTheme = m_rootCosmos && m_rootCosmos->isLightThemeActive();
+    QColor acc = m_rootCosmos ? m_rootCosmos->fixedAccentColor() : QColor(56, 189, 248);
 
-    // Применение ширины боковой панели и подписей у иконок
+    QString mainTxtHex = lightTheme ? "#0F172A" : "#F8FAFC";
+    QString subTxtHex = lightTheme ? "rgba(30, 41, 59, 215)" : "rgba(241, 245, 249, 215)";
+
+    // Динамический QSS для QLabel, QSpinBox, QLineEdit, QTextEdit и QSlider (исправляет читаемость в Светлой теме и стилизует ползунки)
+    QString dynQss = QString(
+        "QLabel { color: %1; font-size: %2px; font-weight: %3; font-style: normal; background: transparent; }\n"
+        "QLabel#SubText { color: %4; font-size: %5px; }\n"
+        "QSpinBox, QLineEdit { color: %1; font-size: %2px; font-weight: 700; background: transparent; border: none; padding: 6px 12px; }\n"
+        "QTextEdit { color: %1; background-color: %6; border: 1px solid rgba(%7, %8, %9, 95); border-radius: 14px; padding: 10px; }\n"
+        "QSlider::groove:horizontal { height: 6px; background: rgba(148, 163, 184, 55); border-radius: 3px; }\n"
+        "QSlider::sub-page:horizontal { background: rgba(%7, %8, %9, 195); border-radius: 3px; }\n"
+        "QSlider::handle:horizontal { width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; "
+        "background: #FFFFFF; border: 2px solid rgb(%7, %8, %9); }\n"
+    ).arg(mainTxtHex)
+     .arg(scaledPx)
+     .arg(fontWeight)
+     .arg(subTxtHex)
+     .arg(std::max(10, scaledPx - 2))
+     .arg(lightTheme ? "rgba(255, 255, 255, 140)" : "rgba(6, 10, 20, 45)")
+     .arg(acc.red()).arg(acc.green()).arg(acc.blue());
+
+    if (m_pages) m_pages->setStyleSheet(dynQss);
+
     if (m_sidebar) {
-        bool compact = !s.sidebarShowLabels || (s.sidebarPosition == 1);
+        bool compact = !s.sidebarShowLabels || (s.sidebarPosition == 1) || (!s.sidebarPinned && !m_sidebar->underMouse());
         int targetW = compact ? 68 : std::clamp(s.sidebarWidthPx, 160, 280);
-        if (s.sidebarPinned) {
-            m_sidebar->setMinimumWidth(targetW);
-            m_sidebar->setMaximumWidth(targetW);
-        }
+        m_sidebar->setMinimumWidth(targetW);
+        m_sidebar->setMaximumWidth(targetW);
         for (auto *b : m_navButtons) {
             b->setCompactMode(compact);
         }
     }
 
-    // Плотность отступов карточек
     int padV = (s.uiDensity == 0) ? 6 : ((s.uiDensity == 2) ? 16 : 12);
     for (int i = 1; i < m_pages->count(); ++i) {
         if (auto *sa = qobject_cast<QScrollArea *>(m_pages->widget(i))) {
@@ -1348,7 +1376,6 @@ void MainWindow::applyLayoutAndTypographyLive() {
         }
     }
 
-    // Применение «Всегда поверх» на сессиях X11
     if (!QGuiApplication::platformName().contains("wayland", Qt::CaseInsensitive)) {
         bool curTop = (windowFlags() & Qt::WindowStaysOnTopHint);
         if (curTop != s.alwaysOnTop) {

@@ -1,3 +1,4 @@
+#include <QWheelEvent>
 #pragma once
 #include "render/Ton618GlWidget.hpp"
 #include <QApplication>
@@ -167,7 +168,7 @@ inline void drawHyperOs4LiquidGlass(QPainter &p,
     if (vp.highContrast) {
         tintVeil.setColorAt(0.0, QColor(4, 6, 12, 235));
         tintVeil.setColorAt(1.0, QColor(8, 12, 22, 240));
-    } else if (vp.themeMode == 1) {
+    } else if (bg && bg->isLightThemeActive()) {
         int aLight = std::clamp(int(175 + glassOpacity * 120), 165, 240);
         tintVeil.setColorAt(0.0, QColor(255, 255, 255, aLight));
         tintVeil.setColorAt(1.0, QColor(241, 245, 249, aLight));
@@ -318,6 +319,10 @@ public:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override {
+        if (watched == slider && event->type() == QEvent::Wheel) {
+            event->ignore();
+            return true;
+        }
         if ((watched == slider || watched == valLabel) && event->type() == QEvent::MouseButtonDblClick) {
             slider->setValue(defaultVal);
             if (onValueCommitted) onValueCommitted(defaultVal);
@@ -579,6 +584,8 @@ public:
         });
     }
 
+    void wheelEvent(QWheelEvent *e) override { e->ignore(); }
+
     void showPopup() override {
         scaleSpring.velocity -= 1.6;
         if (!physTimer->isActive()) physTimer->start(16);
@@ -828,6 +835,10 @@ protected:
 
         if (qobject_cast<QLineEdit *>(watched) || qobject_cast<QSpinBox *>(watched)) {
             auto *w = static_cast<QWidget *>(watched);
+            if (qobject_cast<QSpinBox *>(watched) && event->type() == QEvent::Wheel && !w->hasFocus()) {
+                event->ignore();
+                return true;
+            }
             if (event->type() == QEvent::Show || event->type() == QEvent::Polish) {
                 w->setMouseTracking(true);
                 connect(w, &QObject::destroyed, this, [this, w]() { surfaces.remove(w); });

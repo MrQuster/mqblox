@@ -240,9 +240,13 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
     if (m_settings.graphicsApi == GraphicsApi::Vulkan) {
         fflags["FFlagDebugGraphicsPreferVulkan"] = true;
         fflags["FFlagDebugGraphicsDisableOpenGL"] = true;
+        fflags["FFlagDebugGraphicsPreferOpenGL"] = false;
+        fflags["FFlagDebugGraphicsDisableVulkan"] = false;
     } else {
         fflags["FFlagDebugGraphicsPreferOpenGL"] = true;
+        fflags["FFlagDebugGraphicsDisableOpenGL"] = false;
         fflags["FFlagDebugGraphicsPreferVulkan"] = false;
+        fflags["FFlagDebugGraphicsDisableVulkan"] = true;
     }
 
     if (m_settings.lighting == LightingMode::Voxel || m_settings.fullBright) {

@@ -1,3 +1,5 @@
+#include <QGuiApplication>
+#include <QStyleHints>
 #include "render/Ton618GlWidget.hpp"
 #include <QDir>
 #include <QEvent>
@@ -31,16 +33,23 @@ QColor Ton618GlWidget::fixedAccentColor() const {
     }
 }
 
+bool Ton618GlWidget::isLightThemeActive() const {
+    VisualParams vp = visuals();
+    if (vp.highContrast) return false;
+    if (isLightThemeActive()) return true;
+    if (vp.themeMode == 2 && QGuiApplication::styleHints()) {
+        return QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Light;
+    }
+    return false;
+}
+
 QColor Ton618GlWidget::resolveTextColor(const QColor &surfaceTint) const {
     VisualParams vp = visuals();
+    bool light = isLightThemeActive();
     if (vp.highContrast) return QColor(255, 255, 255);
-    if (vp.textColorMode == 1) return QColor(248, 250, 252);
-    if (vp.textColorMode == 2) {
-        // Если выбран тёмный текст, проверяем, достаточно ли светлая подложка (тема Светлая)
-        return (vp.themeMode == 1) ? QColor(15, 23, 42) : QColor(241, 245, 249);
-    }
-    // Авто по контрасту WCAG AA
-    if (vp.themeMode == 1) return QColor(15, 23, 42);
+    if (vp.textColorMode == 1) return light ? QColor(15, 23, 42) : QColor(248, 250, 252);
+    if (vp.textColorMode == 2) return light ? QColor(15, 23, 42) : QColor(226, 232, 240);
+    if (light) return QColor(15, 23, 42);
     int lum = (surfaceTint.red() * 77 + surfaceTint.green() * 150 + surfaceTint.blue() * 29) >> 8;
     return (lum > 185) ? QColor(15, 23, 42) : QColor(248, 250, 252);
 }
@@ -231,6 +240,7 @@ Ton618GlWidget::Ton618GlWidget(QWidget *parent) : QWidget(parent) {
              videoDir + "/ton618_nasa_loop.mp4"}) {
         if (QFileInfo(cand).size() > 100000) {
             m_videoPath = cand;
+            m_defaultVideoPath = cand;
             break;
         }
     }
@@ -309,6 +319,33 @@ void Ton618GlWidget::applyVisualSettings(const AppSettings &s) {
     m_videoFps = std::clamp(s.videoFpsLimit, 15, 60);
     m_accentPreset = s.accentPreset;
     m_pauseOnFocusLoss = s.pauseOnFocusLoss;
+
+    if (s.backdropType == 3 && !s.customBackdropPath.trimmed().isEmpty() && QFileInfo::exists(s.customBackdropPath.trimmed())) {
+        QString cPath = s.customBackdropPath.trimmed();
+        if (m_customFilePath != cPath) {
+            m_customFilePath = cPath;
+            loadCustomVideoFile(cPath);
+            return;
+        }
+    } else if (s.backdropType == 0 && !m_defaultVideoPath.isEmpty()) {
+        bool restoredDefault = false;
+        {
+            std::lock_guard<std::mutex> lk(m_pathMutex);
+            if (m_videoPath != m_defaultVideoPath) {
+                m_videoPath = m_defaultVideoPath;
+                m_customFilePath.clear();
+                restoredDefault = true;
+            }
+        }
+        if (restoredDefault) {
+            loadBestFallbackImage();
+            updateStaticCaches();
+            if (wantVideo) startDecoderThread();
+        }
+    } else if (s.backdropType == 1) {
+        m_customFilePath.clear();
+        loadBestFallbackImage();
+    }
 
     if (prevAnim != wantVideo) {
         setAnimationEnabled(wantVideo);
@@ -548,7 +585,7 @@ void Ton618GlWidget::updateStaticCaches() {
         QImage gradImg(320, 180, QImage::Format_RGB32);
         QPainter gp(&gradImg);
         QLinearGradient lg(0, 0, 320, 180);
-        if (vp.themeMode == 1) {
+        if (isLightThemeActive()) {
             lg.setColorAt(0.0, QColor(224, 242, 254));
             lg.setColorAt(0.5, QColor(241, 245, 249));
             lg.setColorAt(1.0, QColor(226, 232, 240));
@@ -613,7 +650,7 @@ void Ton618GlWidget::paintEvent(QPaintEvent *) {
     }
 
     // Затемнение заднего фона (0..85%) или осветление для светлой темы
-    if (vp.themeMode == 1) {
+    if (isLightThemeActive()) {
         p.fillRect(rect(), QColor(248, 250, 252, 165));
     } else if (vp.backdropDimPct > 0) {
         int dimAlpha = std::clamp(vp.backdropDimPct * 255 / 100, 0, 225);
