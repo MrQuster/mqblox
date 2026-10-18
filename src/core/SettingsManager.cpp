@@ -103,6 +103,10 @@ void SettingsManager::loadAll() {
     QJsonObject s = root.value("settings").toObject();
     if (!s.isEmpty()) {
         SettingsRegistry::readFromJson(m_settings, s);
+        if (root.value("schemaVersion").toInt(0) < 36) {
+            m_settings.gamepadSupport = false;
+            m_settings.resMode = ResolutionMode::Auto;
+        }
     }
 }
 
@@ -137,7 +141,7 @@ bool SettingsManager::saveAll(QString *errMsg) {
     }
 
     QJsonObject root;
-    root["schemaVersion"] = 35;
+    root["schemaVersion"] = 36;
     root["activeAccountId"] = m_activeAccountId;
     root["accounts"] = arr;
     root["settings"] = s;
@@ -356,6 +360,7 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
     soberCfg["enable_hidpi"] = m_settings.enableHiDpi;
     soberCfg["server_location_indicator_enabled"] = m_settings.serverRegionIndicator;
     soberCfg["use_console_experience"] = m_settings.gamepadSupport;
+    soberCfg["touch_mode"] = "off";
     soberCfg["disable_telemetry"] = m_settings.disableTelemetry;
     soberCfg["graphics_optimization_mode"] = m_settings.optMode;
     soberCfg["fflags"] = fflags;

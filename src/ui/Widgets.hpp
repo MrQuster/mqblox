@@ -563,11 +563,11 @@ public:
 
     explicit DarkComboBox(QWidget *parent = nullptr) : QComboBox(parent) {
         setMinimumHeight(36);
-        setMinimumWidth(60);
+        setMinimumWidth(115);
         setMouseTracking(true);
         setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-        setMinimumContentsLength(4);
-        setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        setMinimumContentsLength(8);
+        setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
         auto *lv = new QListView(this);
         lv->setObjectName("ComboPopupList");
         setView(lv);

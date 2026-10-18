@@ -252,7 +252,7 @@ private:
         addBool("bringBackOof", SettingCategory::Graphics, "Классический звук Oof", "Возвращает старый звук смерти", true, &AppSettings::bringBackOof);
         addBool("discordRpc", SettingCategory::Graphics, "Статус в Discord (Rich Presence)", "Показывать игру в профиле Discord", true, &AppSettings::discordRpc);
         addBool("serverRegionIndicator", SettingCategory::Graphics, "Индикатор региона сервера", "Показывать локацию сервера", true, &AppSettings::serverRegionIndicator);
-        addBool("gamepadSupport", SettingCategory::Graphics, "Поддержка геймпада", "Консольный режим управления", true, &AppSettings::gamepadSupport);
+        addBool("gamepadSupport", SettingCategory::Graphics, "Режим консоли (Console UI)", "Включает интерфейс Xbox/PS (выключите для обычного ПК-режима)", true, &AppSettings::gamepadSupport);
         addBool("enableHiDpi", SettingCategory::Graphics, "Масштабирование HiDPI в игре", "Чёткий интерфейс на 2K/4K экранах", true, &AppSettings::enableHiDpi);
         addString("customFflagsJson", SettingCategory::Graphics, "Пользовательские FastFlags (JSON)", "Собственный JSON-объект флагов", true, &AppSettings::customFflagsJson);
 

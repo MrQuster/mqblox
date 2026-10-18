@@ -92,7 +92,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_soberCtrl = new SoberController(&m_settingsMgr, this);
     m_apiClient = new RobloxApiClient(this);
 
-    setWindowTitle(tr("MqBlox v34.6 [HyperOS 4 Liquid Glass]"));
+    setWindowTitle(tr("MqBlox v34.7 [HyperOS 4 Liquid Glass]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
     if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -275,7 +275,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox v34.6 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox v34.7 — HyperOS 4 Liquid Glass"));
 
         auto *menu = new QMenu(nullptr);
         menu->setStyleSheet(
@@ -406,7 +406,7 @@ void MainWindow::initUi() {
 
     auto *topBar = new QHBoxLayout();
     topBar->setSpacing(8);
-    auto *topHint = new QLabel(tr("MqBlox v34.6 • HyperOS 4 Liquid Glass • Zero-Lag"));
+    auto *topHint = new QLabel(tr("MqBlox v34.7 • HyperOS 4 Liquid Glass • Zero-Lag"));
     topHint->setObjectName("SubText");
     topBar->addWidget(topHint);
 
@@ -1048,8 +1048,8 @@ QWidget *MainWindow::buildCameraModsPage() {
         QString cfgPath = m_settingsMgr.soberBaseDir() + "/config/sober/config.json";
         bool soberInstalled = QFileInfo::exists(m_settingsMgr.soberBaseDir());
         QString report = QString(
-            "=== MqBlox v34.6 Diagnostic Report ===\n"
-            "Version: v34.6 (Schema 34)\n"
+            "=== MqBlox v34.7 Diagnostic Report ===\n"
+            "Version: v34.7 (Schema 34)\n"
             "Wayland/X11 Platform: %1\n"
             "Sober Directory Exists: %2 (%3)\n"
             "Sober config.json Exists: %4\n"
@@ -1210,13 +1210,13 @@ void MainWindow::refreshGitUpdateStatus() {
         m_updateProgressBar->setRange(0, 100);
         m_updateProgressBar->setValue(100);
         if (code != 0 || out.isEmpty()) {
-            m_lblGitVersionInfo->setText(tr("🟡 <b>Автономный режим — работает локальная версия MqBlox v34.6</b>"));
+            m_lblGitVersionInfo->setText(tr("🟡 <b>Автономный режим — работает локальная версия MqBlox v34.7</b>"));
             m_updateProgressBar->setFormat(tr("⚠️ Нет сети или репозиторий недоступен (текущая версия сохранена)"));
             return;
         }
         bool upToDate = out.startsWith("UP_TO_DATE");
         if (upToDate) {
-            m_lblGitVersionInfo->setText(tr("🟢 <b>Уже установлена последняя версия MqBlox v34.6 [HyperOS 4 Liquid Glass]</b>"));
+            m_lblGitVersionInfo->setText(tr("🟢 <b>Уже установлена последняя версия MqBlox v34.7 [HyperOS 4 Liquid Glass]</b>"));
             m_updateProgressBar->setFormat(tr("✓ Установлена актуальная версия"));
         } else {
             m_lblGitVersionInfo->setText(tr("🔵 <b>Доступно новое обновление в репозитории MrQuster/mqblox!</b>"));

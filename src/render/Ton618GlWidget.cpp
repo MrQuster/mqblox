@@ -36,7 +36,7 @@ QColor Ton618GlWidget::fixedAccentColor() const {
 bool Ton618GlWidget::isLightThemeActive() const {
     VisualParams vp = visuals();
     if (vp.highContrast) return false;
-    if (isLightThemeActive()) return true;
+    if (vp.themeMode == 1) return true;
     if (vp.themeMode == 2 && QGuiApplication::styleHints()) {
         return QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Light;
     }

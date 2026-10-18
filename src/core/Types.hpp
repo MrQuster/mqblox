@@ -83,7 +83,7 @@ struct AppSettings {
     bool bringBackOof = true;
     bool discordRpc = true;
     bool serverRegionIndicator = true;
-    bool gamepadSupport = true;
+    bool gamepadSupport = false;
     bool enableHiDpi = false;
 
     bool showHudFps = false;
