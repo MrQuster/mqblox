@@ -93,7 +93,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_soberCtrl = new SoberController(&m_settingsMgr, this);
     m_apiClient = new RobloxApiClient(this);
 
-    setWindowTitle(tr("MqBlox v34.8 [HyperOS 4 Liquid Glass]"));
+    setWindowTitle(tr("MqBlox v35.0 [HyperOS 4 Liquid Glass]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
     if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -138,7 +138,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     initTrayAndShortcuts();
     syncUiFromSettings();
     refreshAccountsUi();
-    setupWebProfile(m_settingsMgr.activeAccountId());
+    QTimer::singleShot(120, this, [this]() { QTimer::singleShot(120, this, [this]() { setupWebProfile(m_settingsMgr.activeAccountId()); }); });
     applyResolutionMode(m_settingsMgr.settings().resMode, true);
     m_isLoadingUi = false;
 
@@ -265,6 +265,14 @@ void MainWindow::mouseMoveEvent(QMouseEvent *e) {
 }
 
 void MainWindow::closeEvent(QCloseEvent *e) {
+    if (m_autosaveTimer && m_autosaveTimer->isActive()) {
+        m_autosaveTimer->stop();
+        saveSettingsNow(false);
+    }
+    if (m_autosaveTimer && m_autosaveTimer->isActive()) {
+        m_autosaveTimer->stop();
+        saveSettingsNow(false);
+    }
     if (!m_forceQuit && m_settingsMgr.settings().closeToTray && m_trayIcon && m_trayIcon->isVisible()) {
         hide();
         e->ignore();
@@ -278,7 +286,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox v34.8 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox v35.0 — HyperOS 4 Liquid Glass"));
 
         auto *menu = new QMenu(nullptr);
         menu->setStyleSheet(
@@ -409,7 +417,7 @@ void MainWindow::initUi() {
 
     auto *topBar = new QHBoxLayout();
     topBar->setSpacing(8);
-    auto *topHint = new QLabel(tr("MqBlox v34.8 • HyperOS 4 Liquid Glass • Zero-Lag"));
+    auto *topHint = new QLabel(tr("MqBlox v35.0 • HyperOS 4 Liquid Glass • Zero-Lag"));
     topHint->setObjectName("SubText");
     topBar->addWidget(topHint);
 
@@ -1053,8 +1061,8 @@ QWidget *MainWindow::buildCameraModsPage() {
         QString cfgPath = m_settingsMgr.soberBaseDir() + "/config/sober/config.json";
         bool soberInstalled = QFileInfo::exists(m_settingsMgr.soberBaseDir());
         QString report = QString(
-            "=== MqBlox v34.8 Diagnostic Report ===\n"
-            "Version: v34.8 (Schema 34)\n"
+            "=== MqBlox v35.0 Diagnostic Report ===\n"
+            "Version: v35.0 (Schema 34)\n"
             "Wayland/X11 Platform: %1\n"
             "Sober Directory Exists: %2 (%3)\n"
             "Sober config.json Exists: %4\n"
@@ -1216,13 +1224,13 @@ void MainWindow::refreshGitUpdateStatus() {
         m_updateProgressBar->setRange(0, 100);
         m_updateProgressBar->setValue(100);
         if (code != 0 || out.isEmpty()) {
-            m_lblGitVersionInfo->setText(tr("🟡 <b>Автономный режим — работает локальная версия MqBlox v34.8</b>"));
+            m_lblGitVersionInfo->setText(tr("🟡 <b>Автономный режим — работает локальная версия MqBlox v35.0</b>"));
             m_updateProgressBar->setFormat(tr("⚠️ Нет сети или репозиторий недоступен (текущая версия сохранена)"));
             return;
         }
         bool upToDate = out.startsWith("UP_TO_DATE");
         if (upToDate) {
-            m_lblGitVersionInfo->setText(tr("🟢 <b>Уже установлена последняя версия MqBlox v34.8 [HyperOS 4 Liquid Glass]</b>"));
+            m_lblGitVersionInfo->setText(tr("🟢 <b>Уже установлена последняя версия MqBlox v35.0 [HyperOS 4 Liquid Glass]</b>"));
             m_updateProgressBar->setFormat(tr("✓ Установлена актуальная версия"));
         } else {
             m_lblGitVersionInfo->setText(tr("🔵 <b>Доступно новое обновление в репозитории MrQuster/mqblox!</b>"));
@@ -1332,47 +1340,42 @@ void MainWindow::runMicrophoneDiagnostics() {
     dlg->deleteLater();
 }
 
-void MainWindow::filterSettingsBySearch(const QString &query) {
-    QString q = query.trimmed();
-    int firstMatchedTab = -1;
+void MainWindow::buildSearchIndex() {
+    m_searchIndex.clear();
+    if (!m_pages) return;
     for (int i = 1; i < m_pages->count(); ++i) {
         QWidget *page = m_pages->widget(i);
         if (!page) continue;
-        bool pageHasMatch = false;
-        for (QFrame *card : page->findChildren<QFrame *>("GlassCard")) {
-            if (q.isEmpty()) {
-                card->setVisible(true);
-                continue;
+        const auto cards = page->findChildren<QFrame *>("GlassCard");
+        for (QFrame *card : cards) {
+            QStringList tokens;
+            for (QLabel *l : card->findChildren<QLabel *>()) tokens << l->text();
+            for (QCheckBox *c : card->findChildren<QCheckBox *>()) tokens << c->text() << c->toolTip();
+            for (QComboBox *cmb : card->findChildren<QComboBox *>()) {
+                for (int k = 0; k < cmb->count(); ++k) tokens << cmb->itemText(k);
             }
-            bool match = false;
-            for (QLabel *l : card->findChildren<QLabel *>()) {
-                if (l->text().contains(q, Qt::CaseInsensitive)) { match = true; break; }
-            }
-            if (!match) {
-                for (QCheckBox *c : card->findChildren<QCheckBox *>()) {
-                    if (c->text().contains(q, Qt::CaseInsensitive)) { match = true; break; }
-                }
-            }
-            if (!match) {
-                for (QComboBox *cmb : card->findChildren<QComboBox *>()) {
-                    for (int k = 0; k < cmb->count(); ++k) {
-                        if (cmb->itemText(k).contains(q, Qt::CaseInsensitive)) { match = true; break; }
-                    }
-                    if (match) break;
-                }
-            }
-            if (!match) {
-                for (QPushButton *btn : card->findChildren<QPushButton *>()) {
-                    if (btn->text().contains(q, Qt::CaseInsensitive)) { match = true; break; }
-                }
-            }
-            card->setVisible(match);
-            if (match) pageHasMatch = true;
-        }
-        if (pageHasMatch && firstMatchedTab == -1) {
-            firstMatchedTab = i;
+            for (QPushButton *b : card->findChildren<QPushButton *>()) tokens << b->text() << b->toolTip();
+            m_searchIndex.push_back(SearchEntry{i, card, tokens.join(' ').toLower()});
         }
     }
+}
+
+void MainWindow::filterSettingsBySearch(const QString &query) {
+    if (m_searchIndex.empty()) buildSearchIndex();
+    const QString q = query.trimmed().toLower();
+    int firstMatchedTab = -1;
+
+    setUpdatesEnabled(false);
+    for (const auto &entry : m_searchIndex) {
+        if (!entry.card) continue;
+        bool match = q.isEmpty() || entry.haystackLower.contains(q);
+        entry.card->setVisible(match);
+        if (match && firstMatchedTab == -1) {
+            firstMatchedTab = entry.tabIndex;
+        }
+    }
+    setUpdatesEnabled(true);
+
     if (!q.isEmpty() && firstMatchedTab != -1 && m_pages->currentIndex() != firstMatchedTab) {
         switchTab(firstMatchedTab);
     }
@@ -1455,7 +1458,10 @@ void MainWindow::applyLayoutAndTypographyLive() {
      .arg(lightTheme ? "rgba(255, 255, 255, 140)" : "rgba(6, 10, 20, 45)")
      .arg(acc.red()).arg(acc.green()).arg(acc.blue());
 
-    if (m_pages) m_pages->setStyleSheet(dynQss);
+    if (m_pages && m_lastAppliedQss != dynQss) {
+        m_lastAppliedQss = dynQss;
+        m_pages->setStyleSheet(dynQss);
+    }
 
     if (m_sidebar) {
         bool compact = !s.sidebarShowLabels || (s.sidebarPosition == 1) || (!s.sidebarPinned && !m_sidebar->underMouse());
@@ -1749,23 +1755,15 @@ void MainWindow::saveSettingsNow(bool manualClick) {
 void MainWindow::triggerInstantAutosave(const QString &toastMsg) {
     if (m_isLoadingUi) return;
     if (!toastMsg.isEmpty()) enqueueToast(toastMsg);
-    // МГНОВЕННО считываем все галочки и записываем в settings_v13.json и config.json!
     collectSettingsFromUi();
-    QString err;
-    if (m_settingsMgr.saveAll(&err)) {
-        if (m_lblFflagsValidation) {
-            m_lblFflagsValidation->setText(tr("✓ Настройки и чит-флаги мгновенно сохранены в config.json"));
-            m_lblFflagsValidation->setStyleSheet("color: #34D399; font-size: 11px; font-weight: 700;");
-        }
-        if (m_btnSaveSettings) {
-            m_btnSaveSettings->setText(tr("💾 Сохранить настройки ●"));
-            m_btnSaveSettings->setAccentColor(QColor(245, 158, 11), true);
-        }
-        if (m_lblAutosync) {
-            m_lblAutosync->setText(tr("⚡ Авто-сохранено"));
-        }
+    if (m_btnSaveSettings) {
+        m_btnSaveSettings->setText(tr("💾 Сохранить настройки ●"));
+        m_btnSaveSettings->setAccentColor(QColor(245, 158, 11), false);
     }
-    m_autosaveTimer->start(600);
+    if (m_lblAutosync) {
+        m_lblAutosync->setText(tr("⚡ Авто-сохранение..."));
+    }
+    m_autosaveTimer->start(350);
 }
 
 void MainWindow::enqueueToast(const QString &msg) {

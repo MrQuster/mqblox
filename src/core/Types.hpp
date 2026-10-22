@@ -36,7 +36,7 @@ struct AccountProfile {
 };
 
 struct AppSettings {
-    int schemaVersion = 37;
+    int schemaVersion = 38;
 
     ResolutionMode resMode = ResolutionMode::Auto;
     GpuVendorMode gpuVendor = GpuVendorMode::Auto;

@@ -1,3 +1,4 @@
+#include <condition_variable>
 #pragma once
 #include "core/Types.hpp"
 #include <QColor>
@@ -135,6 +136,8 @@ private:
     std::atomic<bool> m_pauseOnFocusLoss{false};
 
     std::mutex m_pathMutex;
+    std::mutex m_pauseMutex;
+    std::condition_variable m_pauseCv;
     QString m_videoPath;
     QString m_defaultVideoPath;
     QString m_customFilePath;

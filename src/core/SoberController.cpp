@@ -177,12 +177,12 @@ void SoberController::launchRoblox(const QString &customUri) {
         auto *waitProc = new QProcess(this);
         connect(waitProc, &QProcess::finished, this, [waitProc, startClient](int, QProcess::ExitStatus) {
             waitProc->deleteLater();
-            QTimer::singleShot(250, startClient);
+            QTimer::singleShot(60, startClient);
         });
         waitProc->start("bash", QStringList{"-c",
             "for i in 1 2 3 4 5 6; do "
             "  if ! flatpak ps 2>/dev/null | grep -q 'org.vinegarhq.Sober'; then break; fi; "
-            "  sleep 0.15; "
+            "  sleep 0.06; "
             "done"
         });
     });

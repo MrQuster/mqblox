@@ -1,25 +1,36 @@
-cmake_minimum_required(VERSION 3.22)
-project(mqblox VERSION 26.0.0 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.20)
+project(mqblox VERSION 35.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS
-    Core
-    Gui
-    Widgets
-    Network
-    Concurrent
-    WebEngineCore
-    WebEngineWidgets
-    Test
-)
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+endif()
+
+add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
+
+option(MQBLOX_SANITIZE_ADDRESS "Enable ASan+UBSan" OFF)
+option(MQBLOX_SANITIZE_THREAD "Enable TSan" OFF)
+
+if(MQBLOX_SANITIZE_ADDRESS)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+elseif(MQBLOX_SANITIZE_THREAD)
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=thread)
+elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_options(-O3)
+endif()
+
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Concurrent WebEngineCore WebEngineWidgets Test)
 
 add_library(mqblox_core STATIC
     src/core/Types.hpp
+    src/core/SettingsRegistry.hpp
     src/core/SecretStore.hpp
     src/core/SecretStore.cpp
     src/core/SettingsManager.hpp
@@ -47,6 +58,7 @@ add_executable(mqblox
     src/ui/MainWindow.cpp
     resources/resources.qrc
 )
+target_include_directories(mqblox PRIVATE src)
 target_link_libraries(mqblox PRIVATE
     mqblox_core
     Qt6::WebEngineCore
@@ -55,5 +67,6 @@ target_link_libraries(mqblox PRIVATE
 
 enable_testing()
 add_executable(tst_mqblox tests/tst_mqblox.cpp)
+target_include_directories(tst_mqblox PRIVATE src)
 target_link_libraries(tst_mqblox PRIVATE mqblox_core Qt6::Test)
-add_test(NAME tst_mqblox COMMAND tst_mqblox)
+add_test(NAME MqBloxCoreTests COMMAND tst_mqblox)

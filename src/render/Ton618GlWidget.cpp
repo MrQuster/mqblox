@@ -125,7 +125,7 @@ void Ton618GlWidget::buildAdaptiveColorMap(const QImage &srcSmall,
                                            QImage &outMap,
                                            QColor &outPrimary,
                                            QColor &outSecondary) {
-    QImage cmap = srcSmall.scaled(64, 36, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+    QImage cmap = srcSmall.scaled(32, 18, Qt::IgnoreAspectRatio, Qt::FastTransformation)
                       .convertToFormat(QImage::Format_RGB32);
     const int w = cmap.width(), h = cmap.height();
 
@@ -254,7 +254,10 @@ Ton618GlWidget::~Ton618GlWidget() {
 void Ton618GlWidget::updatePauseState() {
     bool min = window() && window()->isMinimized();
     bool focusPaused = m_pauseOnFocusLoss.load() && !m_windowFocused;
-    m_paused = (min || focusPaused || !m_animEnabled || m_inGamePaused || !isVisible());
+    bool newPaused = (min || focusPaused || !m_animEnabled || m_inGamePaused || !isVisible());
+    if (m_paused.exchange(newPaused) != newPaused) {
+        m_pauseCv.notify_all();
+    }
 }
 
 void Ton618GlWidget::applyVisualSettings(const AppSettings &s) {
@@ -398,6 +401,7 @@ void Ton618GlWidget::startDecoderThread() {
 
 void Ton618GlWidget::stopDecoderThread() {
     m_stopWorker = true;
+    m_pauseCv.notify_all();
     if (m_worker.joinable()) {
         m_worker.join();
     }
@@ -411,8 +415,8 @@ void Ton618GlWidget::decoderLoop() {
     }
     if (path.isEmpty() || !QFile::exists(path)) return;
 
-    QString cmd = QString("ffmpeg -loglevel quiet -threads 2 -stream_loop -1 -i \"%1\" "
-                          "-vf scale=%2:%3 -r 30 -f rawvideo -pix_fmt rgb32 -")
+    QString cmd = QString("ffmpeg -loglevel quiet -hwaccel auto -threads 2 -stream_loop -1 -i \"%1\" "
+                          "-vf scale=%2:%3:flags=fast_bilinear -r 30 -f rawvideo -pix_fmt rgb32 -")
                       .arg(path)
                       .arg(STREAM_W)
                       .arg(STREAM_H);
@@ -422,35 +426,39 @@ void Ton618GlWidget::decoderLoop() {
 
     std::vector<uchar> buf(FRAME_BYTES);
     QImage prevColorMap;
+    QColor cachedAmb1 = m_ambientPrimary;
+    QColor cachedAmb2 = m_ambientSecondary;
+    uint32_t frameCounter = 0;
     auto nextTick = std::chrono::steady_clock::now();
     QPointer<Ton618GlWidget> safeThis(this);
 
-    while (!m_stopWorker) {
-        if (m_paused) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(45));
+    while (!m_stopWorker.load(std::memory_order_relaxed)) {
+        if (m_paused.load(std::memory_order_relaxed)) {
+            std::unique_lock<std::mutex> lk(m_pauseMutex);
+            m_pauseCv.wait_for(lk, std::chrono::milliseconds(250), [this]() {
+                return m_stopWorker.load() || !m_paused.load();
+            });
             nextTick = std::chrono::steady_clock::now();
             continue;
         }
 
         size_t readBytes = 0;
-        while (readBytes < FRAME_BYTES && !m_stopWorker) {
+        while (readBytes < FRAME_BYTES && !m_stopWorker.load(std::memory_order_relaxed)) {
             size_t n = std::fread(buf.data() + readBytes, 1, FRAME_BYTES - readBytes, pipe);
             if (n == 0) break;
             readBytes += n;
         }
-        if (readBytes < FRAME_BYTES || m_stopWorker) break;
+        if (readBytes < FRAME_BYTES || m_stopWorker.load(std::memory_order_relaxed)) break;
 
-        int tw = std::max(320, m_targetW.load());
-        int th = std::max(240, m_targetH.load());
-        int blurR = std::clamp(m_blurStrength.load(), 0, 8);
-        int satPct = std::clamp(m_saturationPct.load(), 80, 220);
-        int cSpeed = std::clamp(m_chameleonSpeed.load(), 5, 100);
-        int cStrength = std::clamp(m_chameleonStrength.load(), 20, 150);
+        int tw = std::max(320, m_targetW.load(std::memory_order_relaxed));
+        int th = std::max(240, m_targetH.load(std::memory_order_relaxed));
+        int blurR = std::clamp(m_blurStrength.load(std::memory_order_relaxed), 0, 8);
+        int satPct = std::clamp(m_saturationPct.load(std::memory_order_relaxed), 80, 220);
 
-        if (!m_frameQueued.load()) {
+        if (!m_frameQueued.load(std::memory_order_acquire)) {
             QImage rawFrame(buf.data(), STREAM_W, STREAM_H, STREAM_W * 4, QImage::Format_RGB32);
 
-            QImage sharpScaled = rawFrame.scaled(tw, th, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+            QImage sharpScaled = rawFrame.scaled(tw, th, Qt::KeepAspectRatioByExpanding, Qt::FastTransformation);
             int offX = std::max(0, (sharpScaled.width() - tw) / 2);
             int offY = std::max(0, (sharpScaled.height() - th) / 2);
             QImage sharpFinal = sharpScaled.copy(offX, offY, tw, th);
@@ -459,34 +467,43 @@ void Ton618GlWidget::decoderLoop() {
             QImage blurredSmall = buildCrystalFrostedImage(small, blurR, satPct);
             QImage frostedFinal = blurredSmall.scaled(tw, th, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 
-            QImage cmap;
-            QColor amb1, amb2;
-            buildAdaptiveColorMap(blurredSmall, prevColorMap, cSpeed, cStrength, cmap, amb1, amb2);
-            prevColorMap = cmap;
+            if ((frameCounter++ % 4 == 0) || prevColorMap.isNull()) {
+                int cSpeed = std::clamp(m_chameleonSpeed.load(std::memory_order_relaxed), 5, 100);
+                int cStrength = std::clamp(m_chameleonStrength.load(std::memory_order_relaxed), 20, 150);
+                QImage cmap;
+                buildAdaptiveColorMap(blurredSmall, prevColorMap, cSpeed, cStrength, cmap, cachedAmb1, cachedAmb2);
+                prevColorMap = std::move(cmap);
+            }
+            QImage cmapCopy = prevColorMap;
+            QColor amb1 = cachedAmb1;
+            QColor amb2 = cachedAmb2;
 
-            m_frameQueued = true;
-            QMetaObject::invokeMethod(this, [safeThis, sharpFinal, frostedFinal, cmap, amb1, amb2]() {
-                if (!safeThis) return;
-                safeThis->m_scaledSharp = QPixmap::fromImage(sharpFinal);
-                safeThis->m_scaledFrosted = QPixmap::fromImage(frostedFinal);
-                safeThis->m_colorMap = cmap;
-                safeThis->m_ambientPrimary = amb1;
-                safeThis->m_ambientSecondary = amb2;
-                safeThis->m_frameQueued = false;
-                if (safeThis->isVisible() && (!safeThis->window() || !safeThis->window()->isMinimized())) {
-                    safeThis->update();
-                }
-            }, Qt::QueuedConnection);
+            m_frameQueued.store(true, std::memory_order_release);
+            QMetaObject::invokeMethod(this,
+                [safeThis,
+                 sImg = std::move(sharpFinal),
+                 fImg = std::move(frostedFinal),
+                 cImg = std::move(cmapCopy),
+                 amb1, amb2]() mutable {
+                    if (!safeThis) return;
+                    safeThis->m_scaledSharp = QPixmap::fromImage(std::move(sImg));
+                    safeThis->m_scaledFrosted = QPixmap::fromImage(std::move(fImg));
+                    safeThis->m_colorMap = std::move(cImg);
+                    safeThis->m_ambientPrimary = amb1;
+                    safeThis->m_ambientSecondary = amb2;
+                    safeThis->m_frameQueued.store(false, std::memory_order_release);
+                    if (safeThis->isVisible() && (!safeThis->window() || !safeThis->window()->isMinimized())) {
+                        safeThis->update();
+                    }
+                }, Qt::QueuedConnection);
         }
 
-        int fps = std::clamp(m_videoFps.load(), 15, 60);
-        auto frameInterval = std::chrono::microseconds(1000000 / fps);
-        nextTick += frameInterval;
+        int fps = std::clamp(m_videoFps.load(std::memory_order_relaxed), 15, 30);
+        nextTick += std::chrono::microseconds(1000000 / fps);
         auto now = std::chrono::steady_clock::now();
         if (nextTick > now) {
-            while (std::chrono::steady_clock::now() < nextTick && !m_stopWorker) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(4));
-            }
+            std::unique_lock<std::mutex> lk(m_pauseMutex);
+            m_pauseCv.wait_until(lk, nextTick, [this]() { return m_stopWorker.load(); });
         } else {
             nextTick = now;
         }

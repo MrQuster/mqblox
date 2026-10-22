@@ -117,7 +117,7 @@ public:
     }
 
     static void readFromJson(AppSettings &s, const QJsonObject &obj) {
-        s.schemaVersion = 37;
+        s.schemaVersion = 38;
         for (const auto &d : all()) {
             if (!obj.contains(d.key) || obj.value(d.key).isNull() || obj.value(d.key).isUndefined()) {
                 d.setter(s, d.defaultValue);
@@ -138,11 +138,12 @@ public:
         if (s.customFflagsJson.trimmed().isEmpty()) s.customFflagsJson = "{}";
         s.noclipCamWalls = false;
         s.wallhopPhysics = false;
+        if (s.noShadows && s.ultraShadows) s.ultraShadows = false;
     }
 
     static QJsonObject writeToJson(const AppSettings &s) {
         QJsonObject obj;
-        obj["schemaVersion"] = 37;
+        obj["schemaVersion"] = 38;
         for (const auto &d : all()) {
             QVariant val = d.getter(s);
             if (d.type == SettingValueType::Bool) {

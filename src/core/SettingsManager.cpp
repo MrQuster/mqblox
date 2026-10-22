@@ -14,6 +14,28 @@
 
 namespace mqblox {
 
+static bool writeFileIfChanged(const QString &filePath, const QByteArray &newBytes, QString *errMsg = nullptr) {
+    QFile existing(filePath);
+    if (existing.exists() && existing.open(QIODevice::ReadOnly)) {
+        if (existing.readAll() == newBytes) {
+            return true;
+        }
+        existing.close();
+    }
+    QSaveFile sf(filePath);
+    if (!sf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (errMsg) *errMsg = "Не удалось открыть файл для записи: " + filePath;
+        return false;
+    }
+    sf.write(newBytes);
+    if (!sf.commit()) {
+        if (errMsg) *errMsg = "Ошибка атомарного сохранения файла: " + filePath;
+        return false;
+    }
+    return true;
+}
+
+
 SettingsManager::SettingsManager() {
     QDir().mkpath(mqDir());
     QDir().mkpath(accountsDir());
@@ -103,7 +125,7 @@ void SettingsManager::loadAll() {
     QJsonObject s = root.value("settings").toObject();
     if (!s.isEmpty()) {
         SettingsRegistry::readFromJson(m_settings, s);
-        if (root.value("schemaVersion").toInt(0) < 37) {
+        if (root.value("schemaVersion").toInt(0) < 38) {
             m_settings.gamepadSupport = false;
             m_settings.resMode = ResolutionMode::Auto;
             m_settings.pipewireBuffer = false;
@@ -142,7 +164,7 @@ bool SettingsManager::saveAll(QString *errMsg) {
     }
 
     QJsonObject root;
-    root["schemaVersion"] = 37;
+    root["schemaVersion"] = 38;
     root["activeAccountId"] = m_activeAccountId;
     root["accounts"] = arr;
     root["settings"] = s;
@@ -153,13 +175,8 @@ bool SettingsManager::saveAll(QString *errMsg) {
     QDir().mkpath(cfgDir);
     for (const QString &target : {
              cfgDir + "/settings_v35.json",
-             cfgDir + "/settings_v34.json",
              mqDir() + "/settings_v13.json"}) {
-        QSaveFile f(target);
-        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            f.write(payload);
-            f.commit();
-        }
+        writeFileIfChanged(target, payload);
     }
     return true;
 }
@@ -366,24 +383,14 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
 
     QByteArray jsonBytes = QJsonDocument(soberCfg).toJson(QJsonDocument::Indented);
 
-    QSaveFile cf(cfgPath);
-    if (!cf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        if (errMsg) *errMsg = "Не удалось открыть config.json для записи";
-        return false;
-    }
-    cf.write(jsonBytes);
-    if (!cf.commit()) {
-        if (errMsg) *errMsg = "Ошибка атомарного сохранения config.json";
+    if (!writeFileIfChanged(cfgPath, jsonBytes, errMsg)) {
         return false;
     }
 
     QString clientSettingsDir = soberBaseDir() + "/data/sober/appData/ClientSettings";
     QDir().mkpath(clientSettingsDir);
-    QSaveFile csf(clientSettingsDir + "/ClientAppSettings.json");
-    if (csf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        csf.write(QJsonDocument(fflags).toJson(QJsonDocument::Indented));
-        csf.commit();
-    }
+    writeFileIfChanged(clientSettingsDir + "/ClientAppSettings.json",
+                       QJsonDocument(fflags).toJson(QJsonDocument::Indented));
     return true;
 }
 

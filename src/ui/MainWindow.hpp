@@ -84,6 +84,15 @@ private:
     void runWatchdogTick();
     void refreshGitUpdateStatus();
     void runMicrophoneDiagnostics();
+    struct SearchEntry {
+        int tabIndex = 0;
+        QFrame *card = nullptr;
+        QString haystackLower;
+    };
+    std::vector<SearchEntry> m_searchIndex;
+    QTimer *m_searchDebounce = nullptr;
+    QString m_lastAppliedQss;
+    void buildSearchIndex();
 
     QString m_launchUri;
     SettingsManager m_settingsMgr;
