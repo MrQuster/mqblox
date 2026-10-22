@@ -117,7 +117,7 @@ public:
     }
 
     static void readFromJson(AppSettings &s, const QJsonObject &obj) {
-        s.schemaVersion = 35;
+        s.schemaVersion = 37;
         for (const auto &d : all()) {
             if (!obj.contains(d.key) || obj.value(d.key).isNull() || obj.value(d.key).isUndefined()) {
                 d.setter(s, d.defaultValue);
@@ -142,7 +142,7 @@ public:
 
     static QJsonObject writeToJson(const AppSettings &s) {
         QJsonObject obj;
-        obj["schemaVersion"] = 35;
+        obj["schemaVersion"] = 37;
         for (const auto &d : all()) {
             QVariant val = d.getter(s);
             if (d.type == SettingValueType::Bool) {
@@ -224,7 +224,7 @@ private:
         addBool("glThread", SettingCategory::System, "Многопоточный OpenGL/Vulkan", "mesa_glthread и RADV_PERFTEST=gpl", true, &AppSettings::glThread);
         addBool("asyncShaders", SettingCategory::System, "Асинхронный кэш шейдеров", "Убирает микрофризы при подгрузке эффектов", true, &AppSettings::asyncShaders);
         addBool("vsyncOff", SettingCategory::System, "Отключить VSync драйвера", "vblank_mode=0", true, &AppSettings::vsyncOff);
-        addBool("pipewireBuffer", SettingCategory::System, "Низкая задержка звука PipeWire", "Квантование 256/48000", true, &AppSettings::pipewireBuffer);
+        addBool("pipewireBuffer", SettingCategory::System, "Нативный аудиорежим Sober", "Звуком и микрофоном управляет сам Sober в настройках игры", true, &AppSettings::pipewireBuffer);
         addBool("mallocTrim", SettingCategory::System, "Сжатие неиспользуемой ОЗУ", "Автоматический возврат памяти системе", true, &AppSettings::mallocTrim);
         addBool("smartAutoCleanCache", SettingCategory::System, "Автоочистка старого кэша", "Очистка временных файлов", false, &AppSettings::smartAutoCleanCache);
         addBool("lowRamFflags", SettingCategory::System, "Режим экономии ОЗУ (Low-RAM)", "Уменьшает буферы текстур и света", true, &AppSettings::lowRamFflags);

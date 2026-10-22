@@ -83,6 +83,7 @@ private:
     void switchTab(int idx);
     void runWatchdogTick();
     void refreshGitUpdateStatus();
+    void runMicrophoneDiagnostics();
 
     QString m_launchUri;
     SettingsManager m_settingsMgr;

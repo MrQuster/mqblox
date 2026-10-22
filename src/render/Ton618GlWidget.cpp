@@ -511,19 +511,25 @@ void Ton618GlWidget::loadCustomVideoFile(const QString &filePath) {
         return;
     }
 
-    QString dest = QDir::homePath() + "/.local/share/mqblox/videos/smooth_loop.mp4";
-    QProcess::execute("ffmpeg", {
+    QString dest = QDir::homePath() + "/.local/share/mqblox/videos/custom_loop.mp4";
+    auto *conv = new QProcess(this);
+    connect(conv, &QProcess::finished, this, [this, conv, dest](int code, QProcess::ExitStatus) {
+        conv->deleteLater();
+        if (code == 0 && QFileInfo(dest).size() > 10000) {
+            {
+                std::lock_guard<std::mutex> lk(m_pathMutex);
+                m_videoPath = dest;
+            }
+            if (m_animEnabled) startDecoderThread();
+        }
+    });
+    conv->start("ffmpeg", QStringList{
         "-loglevel", "error", "-y",
         "-i", filePath,
         "-vf", "scale=854:480:flags=lanczos,fps=30",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-g", "15",
         "-pix_fmt", "yuv420p", "-an", dest
     });
-    {
-        std::lock_guard<std::mutex> lk(m_pathMutex);
-        m_videoPath = dest;
-    }
-    startDecoderThread();
 }
 
 void Ton618GlWidget::showEvent(QShowEvent *e) {

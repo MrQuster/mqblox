@@ -3,6 +3,7 @@ project(mqblox VERSION 26.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 

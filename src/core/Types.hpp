@@ -36,7 +36,7 @@ struct AccountProfile {
 };
 
 struct AppSettings {
-    int schemaVersion = 35;
+    int schemaVersion = 37;
 
     ResolutionMode resMode = ResolutionMode::Auto;
     GpuVendorMode gpuVendor = GpuVendorMode::Auto;
@@ -64,7 +64,7 @@ struct AppSettings {
     bool glThread = true;
     bool asyncShaders = true;
     bool vsyncOff = true;
-    bool pipewireBuffer = true;
+    bool pipewireBuffer = false; // Выключено: не вмешиваемся в аудиопоток Sober/PipeWire
     bool mallocTrim = true;
     bool smartAutoCleanCache = true;
     bool lowRamFflags = false;
@@ -83,7 +83,7 @@ struct AppSettings {
     bool bringBackOof = true;
     bool discordRpc = true;
     bool serverRegionIndicator = true;
-    bool gamepadSupport = false;
+    bool gamepadSupport = false; // Выключено: не переводить Roblox в режим консоли
     bool enableHiDpi = false;
 
     bool showHudFps = false;

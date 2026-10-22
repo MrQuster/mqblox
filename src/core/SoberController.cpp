@@ -6,7 +6,9 @@
 #include <QFileInfo>
 #include <QFutureWatcher>
 #include <QThread>
+#include <QTimer>
 #include <QtConcurrent>
+#include <algorithm>
 
 namespace mqblox {
 
@@ -46,8 +48,7 @@ SoberController::SoberController(SettingsManager *settingsMgr, QObject *parent)
 }
 
 void SoberController::healGameAudioStreamAsync() {
-    QProcess::startDetached("pactl", {"unload-module", "module-role-cork"});
-    QProcess::startDetached("pactl", {"set-sink-mute", "@DEFAULT_SINK@", "0"});
+    // Отключено по правилам: лаунчер не вызывает pactl и не вмешивается в аудиопоток.
 }
 
 void SoberController::detectHardwareAsync() {
@@ -97,10 +98,7 @@ QStringList SoberController::buildFlatpakArgs(const QString &targetUri) const {
         "--talk-name=org.freedesktop.portal.GameMode"
     };
 
-    // Никакого принудительного перехвата PULSE_SOURCE / PULSE_SINK: Sober выбирает микрофон сам!
-    if (s.pipewireBuffer) {
-        args << "--env=PIPEWIRE_LATENCY=1024/48000";
-    }
+    // Никаких PIPEWIRE_LATENCY / PULSE_SOURCE / PULSE_SINK: чистый нативный аудиорежим для стабильной работы микрофона!
     if (s.mallocTrim) {
         args << "--env=MALLOC_TRIM_THRESHOLD_=65536" << "--env=MALLOC_ARENA_MAX=2";
     }
@@ -172,13 +170,23 @@ void SoberController::launchRoblox(const QString &customUri) {
         m_gameProc->start("flatpak", args);
     };
 
-    // ВСЕГДА завершаем старый фоновый процесс Sober перед стартом, чтобы он гарантированно перечитал новый config.json!
+    // Завершаем старый фоновый процесс Sober и дожидаемся полного освобождения аудиосокетов PipeWire
     auto *killProc = new QProcess(this);
-    connect(killProc, &QProcess::finished, this, [killProc, startClient](int, QProcess::ExitStatus) {
+    connect(killProc, &QProcess::finished, this, [this, killProc, startClient](int, QProcess::ExitStatus) {
         killProc->deleteLater();
-        QTimer::singleShot(180, startClient);
+        auto *waitProc = new QProcess(this);
+        connect(waitProc, &QProcess::finished, this, [waitProc, startClient](int, QProcess::ExitStatus) {
+            waitProc->deleteLater();
+            QTimer::singleShot(250, startClient);
+        });
+        waitProc->start("bash", QStringList{"-c",
+            "for i in 1 2 3 4 5 6; do "
+            "  if ! flatpak ps 2>/dev/null | grep -q 'org.vinegarhq.Sober'; then break; fi; "
+            "  sleep 0.15; "
+            "done"
+        });
     });
-    killProc->start("flatpak", {"kill", "org.vinegarhq.Sober"});
+    killProc->start("flatpak", QStringList{"kill", "org.vinegarhq.Sober"});
 }
 
 void SoberController::stopRobloxAsync() {
@@ -186,7 +194,7 @@ void SoberController::stopRobloxAsync() {
     m_inActivePlace = false;
     auto *killProc = new QProcess(this);
     connect(killProc, &QProcess::finished, killProc, &QObject::deleteLater);
-    killProc->start("flatpak", {"kill", "org.vinegarhq.Sober"});
+    killProc->start("flatpak", QStringList{"kill", "org.vinegarhq.Sober"});
     if (isGameRunning()) {
         m_gameProc->terminate();
     }
@@ -217,6 +225,7 @@ void SoberController::switchAccountSlotAsync(const QString &targetAccountId) {
         watcher->deleteLater();
         emit accountSwitchCompleted(targetAccountId);
     });
+
     watcher->setFuture(QtConcurrent::run([appData, oldSlot, newSlot]() {
         if (QDir(appData).exists()) {
             QDir(oldSlot).removeRecursively();

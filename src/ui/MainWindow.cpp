@@ -1,3 +1,4 @@
+#include <QDialog>
 #include "core/SettingsRegistry.hpp"
 #include <QClipboard>
 #include <QScrollBar>
@@ -92,7 +93,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_soberCtrl = new SoberController(&m_settingsMgr, this);
     m_apiClient = new RobloxApiClient(this);
 
-    setWindowTitle(tr("MqBlox v34.7 [HyperOS 4 Liquid Glass]"));
+    setWindowTitle(tr("MqBlox v34.8 [HyperOS 4 Liquid Glass]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
     if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
@@ -151,6 +152,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
         m_logView->append(line);
     });
     connect(m_soberCtrl, &SoberController::gameStarted, this, [this]() {
+        if (m_rootCosmos) m_rootCosmos->setInGamePaused(true);
         m_statusBadge->setText(m_sidebarExpanded ? tr("● В ИГРЕ") : "🎮");
         if (m_settingsMgr.settings().pauseWebInGame && m_webPage) {
             m_webPage->setLifecycleState(QWebEnginePage::LifecycleState::Frozen);
@@ -165,6 +167,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
         enqueueToast(tr("🏠 Выход из плейса: возврат на Главную MqBlox"));
     });
     connect(m_soberCtrl, &SoberController::gameFinished, this, [this](int, bool crashed) {
+        if (m_rootCosmos) m_rootCosmos->setInGamePaused(false);
         if (m_webPage) m_webPage->setLifecycleState(QWebEnginePage::LifecycleState::Active);
         m_statusBadge->setText(m_sidebarExpanded ? tr("● В МЕНЮ MQBLOX") : "●");
         m_soberCtrl->saveCurrentSessionToSlotAsync();
@@ -275,7 +278,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox v34.7 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox v34.8 — HyperOS 4 Liquid Glass"));
 
         auto *menu = new QMenu(nullptr);
         menu->setStyleSheet(
@@ -406,7 +409,7 @@ void MainWindow::initUi() {
 
     auto *topBar = new QHBoxLayout();
     topBar->setSpacing(8);
-    auto *topHint = new QLabel(tr("MqBlox v34.7 • HyperOS 4 Liquid Glass • Zero-Lag"));
+    auto *topHint = new QLabel(tr("MqBlox v34.8 • HyperOS 4 Liquid Glass • Zero-Lag"));
     topHint->setObjectName("SubText");
     topBar->addWidget(topHint);
 
@@ -440,15 +443,15 @@ void MainWindow::initUi() {
     });
     topBar->addWidget(m_comboQuickAcc);
 
-    auto *btnMin = new AnimButton("—"); btnMin->setFixedWidth(34);
+    auto *btnMin = new AnimButton("—"); btnMin->setFixedSize(36, 34); btnMin->setMinimumWidth(36);
     connect(btnMin, &QPushButton::clicked, this, &QWidget::showMinimized);
-    m_btnMax = new AnimButton("□"); m_btnMax->setFixedWidth(34);
+    m_btnMax = new AnimButton("□"); m_btnMax->setFixedSize(36, 34); m_btnMax->setMinimumWidth(36);
     connect(m_btnMax, &QPushButton::clicked, this, [this]() {
         if (isMaximized()) { showNormal(); m_btnMax->setText("□"); }
         else { showMaximized(); m_btnMax->setText("❐"); }
     });
     auto *btnClose = new AnimButton("✕", nullptr, QColor(239, 68, 68), false, true);
-    btnClose->setFixedWidth(34);
+    btnClose->setFixedSize(36, 34); btnClose->setMinimumWidth(36);
     connect(btnClose, &QPushButton::clicked, this, &QWidget::close);
 
     topBar->addWidget(btnMin);
@@ -1030,6 +1033,8 @@ QWidget *MainWindow::buildCameraModsPage() {
 
     auto *rMods = new QHBoxLayout();
     auto *bShowCfg = new AnimButton(tr("🔍 Проверить config.json"), nullptr, QColor(16, 185, 129));
+    auto *bMicDiag = new AnimButton(tr("🎙️ Диагностика микрофона"), nullptr, QColor(52, 211, 153));
+    connect(bMicDiag, &QPushButton::clicked, this, [this]() { runMicrophoneDiagnostics(); });
     auto *bCopyDiag = new AnimButton(tr("📋 Скопировать отчёт диагностики"), nullptr, QColor(56, 189, 248));
     auto *bOpenOv  = new AnimButton(tr("📂 Папка модов"));
     auto *bClean   = new AnimButton(tr("🧹 Очистить кэш"));
@@ -1048,8 +1053,8 @@ QWidget *MainWindow::buildCameraModsPage() {
         QString cfgPath = m_settingsMgr.soberBaseDir() + "/config/sober/config.json";
         bool soberInstalled = QFileInfo::exists(m_settingsMgr.soberBaseDir());
         QString report = QString(
-            "=== MqBlox v34.7 Diagnostic Report ===\n"
-            "Version: v34.7 (Schema 34)\n"
+            "=== MqBlox v34.8 Diagnostic Report ===\n"
+            "Version: v34.8 (Schema 34)\n"
             "Wayland/X11 Platform: %1\n"
             "Sober Directory Exists: %2 (%3)\n"
             "Sober config.json Exists: %4\n"
@@ -1079,6 +1084,7 @@ QWidget *MainWindow::buildCameraModsPage() {
         enqueueToast(tr("🧹 Кэш карт полностью очищен!"));
     });
 
+    rMods->addWidget(bMicDiag);
     rMods->addWidget(bShowCfg);
     rMods->addWidget(bCopyDiag);
     rMods->addWidget(bOpenOv);
@@ -1210,13 +1216,13 @@ void MainWindow::refreshGitUpdateStatus() {
         m_updateProgressBar->setRange(0, 100);
         m_updateProgressBar->setValue(100);
         if (code != 0 || out.isEmpty()) {
-            m_lblGitVersionInfo->setText(tr("🟡 <b>Автономный режим — работает локальная версия MqBlox v34.7</b>"));
+            m_lblGitVersionInfo->setText(tr("🟡 <b>Автономный режим — работает локальная версия MqBlox v34.8</b>"));
             m_updateProgressBar->setFormat(tr("⚠️ Нет сети или репозиторий недоступен (текущая версия сохранена)"));
             return;
         }
         bool upToDate = out.startsWith("UP_TO_DATE");
         if (upToDate) {
-            m_lblGitVersionInfo->setText(tr("🟢 <b>Уже установлена последняя версия MqBlox v34.7 [HyperOS 4 Liquid Glass]</b>"));
+            m_lblGitVersionInfo->setText(tr("🟢 <b>Уже установлена последняя версия MqBlox v34.8 [HyperOS 4 Liquid Glass]</b>"));
             m_updateProgressBar->setFormat(tr("✓ Установлена актуальная версия"));
         } else {
             m_lblGitVersionInfo->setText(tr("🔵 <b>Доступно новое обновление в репозитории MrQuster/mqblox!</b>"));
@@ -1232,6 +1238,98 @@ void MainWindow::refreshGitUpdateStatus() {
         "if [ \"$LOCAL\" = \"$REMOTE\" ]; then echo UP_TO_DATE; else echo UPDATE_AVAILABLE; fi; "
         "git log -n 10 --pretty=format:'✦ [%h] %s (%cr)' origin/main 2>/dev/null"
     });
+}
+
+void MainWindow::runMicrophoneDiagnostics() {
+    auto *dlg = new QDialog(this);
+    dlg->setWindowTitle(tr("🎙️ Диагностика микрофона и аудио-песочницы Sober"));
+    dlg->resize(740, 540);
+    dlg->setStyleSheet(
+        "QDialog { background-color: #0B101E; color: #F8FAFC; }"
+        "QLabel { color: #F8FAFC; font-size: 13px; }"
+        "QTextEdit { color: #E2E8F0; background-color: #111827; border: 1px solid #38BDF8; border-radius: 12px; padding: 10px; font-family: monospace; font-size: 12px; }"
+    );
+
+    auto *lay = new QVBoxLayout(dlg);
+    lay->setContentsMargins(18, 16, 18, 16);
+    lay->setSpacing(10);
+
+    auto *title = new QLabel(tr("🎙️ Безопасная диагностика микрофона (Режим «Только чтение»)"));
+    title->setStyleSheet("font-size: 16px; font-weight: 800; color: #34D399;");
+    lay->addWidget(title);
+
+    auto *hint = new QLabel(tr(
+        "ℹ️ <b>Микрофон выбирается в настройках Roblox внутри игры</b> (<b>Esc → Settings → Input Device</b>). "
+        "Лаунчер MqBlox не перехватывает и не маршрутизирует звук."));
+    hint->setWordWrap(true);
+    lay->addWidget(hint);
+
+    auto *reportBox = new QTextEdit(dlg);
+    reportBox->setReadOnly(true);
+    reportBox->setPlainText(tr("⏳ Сбор информации о разрешениях Flatpak, PipeWire/PulseAudio и устройствах захвата..."));
+    lay->addWidget(reportBox, 1);
+
+    auto *btnRow = new QHBoxLayout();
+    auto *btnCopy = new AnimButton(tr("📋 Скопировать отчёт"), dlg, QColor(56, 189, 248));
+    auto *btnClose = new AnimButton(tr("Закрыть"), dlg);
+    connect(btnCopy, &QPushButton::clicked, dlg, [this, reportBox]() {
+        QApplication::clipboard()->setText(reportBox->toPlainText());
+        enqueueToast(tr("📋 Отчёт диагностики микрофона скопирован!"));
+    });
+    connect(btnClose, &QPushButton::clicked, dlg, &QDialog::accept);
+    btnRow->addStretch();
+    btnRow->addWidget(btnCopy);
+    btnRow->addWidget(btnClose);
+    lay->addLayout(btnRow);
+
+    auto *proc = new QProcess(dlg);
+    connect(proc, &QProcess::finished, dlg, [reportBox, proc](int, QProcess::ExitStatus) {
+        QString raw = QString::fromUtf8(proc->readAllStandardOutput()).trimmed();
+        proc->deleteLater();
+
+        bool hasPulseSocket = raw.contains("pulseaudio") && !raw.contains("!pulseaudio");
+        bool hasInputDev = raw.contains("HAS_CAPTURE_SOURCE=YES");
+
+        QString summary = "=== СВОДКА ДИАГНОСТИКИ МИКРОФОНА (SOBER / ROBLOX) ===\n";
+        summary += QString("• Доступ Flatpak Sober к сокету PulseAudio/PipeWire: %1\n")
+                       .arg(hasPulseSocket ? "✅ РАЗРЕШЁН (pulseaudio)" : "❌ ЗАБЛОКИРОВАН ИЛИ ОТСУТСТВУЕТ!");
+        summary += QString("• Устройство захвата звука (микрофон) в системе:     %1\n\n")
+                       .arg(hasInputDev ? "✅ ОБНАРУЖЕНО" : "⚠️ НЕ НАЙДЕНО АКТИВНЫХ МИКРОФОНОВ!");
+
+        summary += "=== РЕКОМЕНДАЦИИ (ЧТО ПРОВЕРИТЬ, ЕСЛИ МИКРОФОН НЕ РАБОТАЕТ) ===\n"
+                   "1. Зайдите в плейс Roblox с поддержкой Voice Chat, нажмите Esc -> Settings и выберите свой микрофон в строке «Input Device».\n"
+                   "2. Если доступ Flatpak к PulseAudio отсутствует, выполните в терминале:\n"
+                   "   flatpak override --user --socket=pulseaudio org.vinegarhq.Sober\n"
+                   "3. Проверьте, какой микрофон стоит в системе по умолчанию (Default Source в выводе ниже). Чтобы назначить нужный микрофон по умолчанию на Arch Linux / Hyprland, используйте pavucontrol или команду:\n"
+                   "   wpctl set-default <ID_микрофона>\n"
+                   "4. Если используется Bluetooth-гарнитура, убедитесь, что выбран профиль Headset (HSP/HFP), либо используйте отдельный проводной/USB микрофон.\n\n"
+                   "=== ТЕХНИЧЕСКИЕ ДАННЫЕ СИСТЕМЫ (ТОЛЬКО ЧТЕНИЕ) ===\n" + raw;
+
+        reportBox->setPlainText(summary);
+    });
+
+    proc->start("bash", QStringList{"-c",
+        "echo '--- [1] Flatpak Permissions (org.vinegarhq.Sober) ---'; "
+        "flatpak info --show-permissions org.vinegarhq.Sober 2>&1 || echo 'Пакет org.vinegarhq.Sober не установлен'; "
+        "echo ''; "
+        "echo '--- [2] Звуковой сервер (pactl info) ---'; "
+        "pactl info 2>/dev/null | grep -E 'Server Name|Server Version|Default Source|Default Sink' || echo 'pactl не найден'; "
+        "echo ''; "
+        "echo '--- [3] Устройства ввода / Источники звука (wpctl / pactl) ---'; "
+        "if command -v wpctl >/dev/null 2>&1; then "
+        "  wpctl status 2>/dev/null | sed -n '/Audio/,/Video/p'; "
+        "fi; "
+        "SOURCES=$(pactl list short sources 2>/dev/null | grep -v '\\.monitor' || true); "
+        "if [ -n \"$SOURCES\" ]; then "
+        "  echo \"HAS_CAPTURE_SOURCE=YES\"; "
+        "  echo \"$SOURCES\"; "
+        "else "
+        "  echo \"HAS_CAPTURE_SOURCE=NO\"; "
+        "fi"
+    });
+
+    dlg->exec();
+    dlg->deleteLater();
 }
 
 void MainWindow::filterSettingsBySearch(const QString &query) {
@@ -1341,6 +1439,8 @@ void MainWindow::applyLayoutAndTypographyLive() {
     QString dynQss = QString(
         "QLabel { color: %1; font-size: %2px; font-weight: %3; font-style: normal; background: transparent; }\n"
         "QLabel#SubText { color: %4; font-size: %5px; }\n"
+        "QToolTip { color: #F8FAFC; background-color: rgba(15, 23, 42, 240); border: 1px solid rgba(%7, %8, %9, 180); border-radius: 8px; padding: 6px 10px; }\n"
+        "QDialog { background-color: rgb(10, 14, 26); color: #F8FAFC; }\n"
         "QSpinBox, QLineEdit { color: %1; font-size: %2px; font-weight: 700; background: transparent; border: none; padding: 6px 12px; }\n"
         "QTextEdit { color: %1; background-color: %6; border: 1px solid rgba(%7, %8, %9, 95); border-radius: 14px; padding: 10px; }\n"
         "QSlider::groove:horizontal { height: 6px; background: rgba(148, 163, 184, 55); border-radius: 3px; }\n"
@@ -1414,7 +1514,7 @@ void MainWindow::syncUiFromSettings() {
     m_chkGlThread->setChecked(s.glThread);
     m_chkAsyncShaders->setChecked(s.asyncShaders);
     m_chkVsyncOff->setChecked(s.vsyncOff);
-    m_chkPwBuffer->setChecked(s.pipewireBuffer);
+    m_chkPwBuffer->setChecked(false); m_chkPwBuffer->setVisible(false);
     m_chkMallocTrim->setChecked(s.mallocTrim);
     m_chkAutoClean->setChecked(s.smartAutoCleanCache);
     m_chkMemFflags->setChecked(s.lowRamFflags);

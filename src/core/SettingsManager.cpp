@@ -1,5 +1,5 @@
-#include "core/SettingsRegistry.hpp"
 #include "core/SettingsManager.hpp"
+#include "core/SettingsRegistry.hpp"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -103,9 +103,10 @@ void SettingsManager::loadAll() {
     QJsonObject s = root.value("settings").toObject();
     if (!s.isEmpty()) {
         SettingsRegistry::readFromJson(m_settings, s);
-        if (root.value("schemaVersion").toInt(0) < 36) {
+        if (root.value("schemaVersion").toInt(0) < 37) {
             m_settings.gamepadSupport = false;
             m_settings.resMode = ResolutionMode::Auto;
+            m_settings.pipewireBuffer = false;
         }
     }
 }
@@ -141,7 +142,7 @@ bool SettingsManager::saveAll(QString *errMsg) {
     }
 
     QJsonObject root;
-    root["schemaVersion"] = 36;
+    root["schemaVersion"] = 37;
     root["activeAccountId"] = m_activeAccountId;
     root["accounts"] = arr;
     root["settings"] = s;
@@ -198,17 +199,16 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         }
     }
 
-    // Удаляем из существующих fflags только те ключи, которыми управляет MqBlox,
-    // чтобы сторонние ключи пользователя сохранились, а выключенные в UI — чисто удалялись
     static const QStringList kManagedKeys = {
         "DFIntTaskSchedulerTargetFps", "FFlagTaskSchedulerLimitTargetFpsTo2402",
         "FFlagGameBasicSettingsFramerateCap5", "FFlagDebugGraphicsPreferVulkan",
         "FFlagDebugGraphicsDisableOpenGL", "FFlagDebugGraphicsPreferOpenGL",
-        "DFFlagDebugRenderForceTechnologyVoxel", "FFlagDebugForceFutureIsBrightPhase2",
-        "FFlagDebugForceFutureIsBrightPhase3", "DFFlagTextureQualityOverrideEnabled",
-        "DFIntTextureQualityOverride", "FIntDebugForceMSAASamples",
-        "DFIntDebugFRMQualityLevelOverride", "FIntRomarkStartWithGraphicQualityLevel",
-        "FIntRenderShadowIntensity", "DFIntCullFactorPixelThresholdShadowMapHighQuality",
+        "FFlagDebugGraphicsDisableVulkan", "DFFlagDebugRenderForceTechnologyVoxel",
+        "FFlagDebugForceFutureIsBrightPhase2", "FFlagDebugForceFutureIsBrightPhase3",
+        "DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride",
+        "FIntDebugForceMSAASamples", "DFIntDebugFRMQualityLevelOverride",
+        "FIntRomarkStartWithGraphicQualityLevel", "FIntRenderShadowIntensity",
+        "DFIntCullFactorPixelThresholdShadowMapHighQuality",
         "DFIntCullFactorPixelThresholdShadowMapLowQuality", "FIntRenderShadowMapBias",
         "FFlagDisablePostFx", "FFlagDebugSkyGray", "DFIntCSGLevelOfDetailSwitchingDistance",
         "DFIntCSGLevelOfDetailSwitchingDistanceL12", "DFIntCSGLevelOfDetailSwitchingDistanceL23",
@@ -311,7 +311,6 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["DFIntTextureCompositorActiveJobs"] = 1;
     }
 
-    // Учитываем как произвольный спинбокс зума, так и выбранный пресет m_comboCamZoom
     if (m_settings.unlockInfiniteZoom) {
         fflags["FIntCameraMaxZoomDistance"] = m_settings.customMaxZoom;
     } else if (m_settings.camZoom != CameraZoomMode::Default) {
@@ -389,7 +388,7 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
 }
 
 bool SettingsManager::exportPresetToFile(const QString &filePath) const {
-    QString srcPath = QDir::homePath() + "/.config/mqblox/settings_v34.json";
+    QString srcPath = QDir::homePath() + "/.config/mqblox/settings_v35.json";
     if (!QFileInfo::exists(srcPath)) srcPath = mqDir() + "/settings_v13.json";
     QFile src(srcPath);
     if (!src.exists()) return false;
@@ -412,7 +411,7 @@ bool SettingsManager::importPresetFromFile(const QString &filePath, QString *err
     }
     QString cfgDir = QDir::homePath() + "/.config/mqblox";
     QDir().mkpath(cfgDir);
-    for (const QString &dstPath : {cfgDir + "/settings_v34.json", mqDir() + "/settings_v13.json"}) {
+    for (const QString &dstPath : {cfgDir + "/settings_v35.json", mqDir() + "/settings_v13.json"}) {
         QSaveFile dst(dstPath);
         if (dst.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
             dst.write(doc.toJson(QJsonDocument::Indented));
