@@ -16,34 +16,22 @@ enum class SettingCategory {
 };
 
 enum class ResolutionMode { Auto = 0, HD_720p = 1, FHD_1080p = 2, QHD_2K = 3 };
-enum class GpuVendorMode { Auto = 0, AMD = 1, Nvidia = 2, Intel = 3 };
-enum class CpuVendorMode { Auto = 0, Intel = 1, AMD = 2 };
-enum class WindowDriverMode { AutoPassthrough = 0, ForceX11 = 1, ForceWayland = 2 };
-enum class GraphicsApi { OpenGL = 0, Vulkan = 1 };
 enum class LightingMode { Voxel = 0, ShadowMap = 1, FuturePhase3 = 2, GameDefault = 3 };
 enum class TextureQuality { Auto = 0, Level0 = 1, Level1 = 2, Level2 = 3, Level3 = 4 };
-enum class MsaaMode { Off = 0, X2 = 1, X4 = 2, X8 = 3 };
+enum class MsaaMode { Off = 0, X2 = 1, X4 = 2 };
 enum class CameraZoomMode { Default = 0, Medium500 = 1, Far2000 = 2, Cosmic9999 = 3 };
 enum class NetworkProfile { UltraLowPing = 0, Balanced = 1 };
 
 struct AccountProfile {
     QString id = "default";
     QString label = "Main";
-    QString username;
-    QString displayName = "MrQuster";
-    qulonglong userId = 0;
-    QString robux = "—";
+    QString displayName = "Main";
 };
 
 struct AppSettings {
-    int schemaVersion = 38;
+    int schemaVersion = 36;
 
     ResolutionMode resMode = ResolutionMode::Auto;
-    GpuVendorMode gpuVendor = GpuVendorMode::Auto;
-    CpuVendorMode cpuVendor = CpuVendorMode::Auto;
-    WindowDriverMode windowDriver = WindowDriverMode::AutoPassthrough;
-    GraphicsApi graphicsApi = GraphicsApi::Vulkan;
-    QString optMode = "performance";
     LightingMode lighting = LightingMode::Voxel;
     TextureQuality textureQuality = TextureQuality::Auto;
     MsaaMode msaa = MsaaMode::Off;
@@ -54,25 +42,25 @@ struct AppSettings {
     bool unlimitedFps = false;
     int frmQualityLevel = 0;
 
-    QString audioSink = "default";
-    QString audioSource = "default";
+    // MacOBlox Runtime & Input (passed via MACOBLOX_* environment variables)
+    int mouseSensitivityPct = 100; // 10..200 -> MACOBLOX_MOUSE_SENSITIVITY
+    bool hideMenuBar = true;       // MACOBLOX_HIDE_MENU_BAR=0 when false
+    int dnsProvider = 1;           // 0=System, 1=Quad9, 2=Cloudflare, 3=Google, 4=Custom DoT
+    QString dnsCustom;             // Custom DoT IPv4 when dnsProvider == 4
+    bool fpsLog = false;           // MACOBLOX_FPS_LOG=1
+    bool traceUdp = false;         // MACOBLOX_TRACE_UDP=1
+    bool traceLock = false;        // MACOBLOX_TRACE_LOCK=1
+    bool traceGl = false;          // MACOBLOX_TRACE_GL=1
+    bool diagnosticSignals = false;// MACOBLOX_DIAGNOSTIC_SIGNALS=1
 
     bool returnToMqBloxOnLeave = true;
-    bool pauseWebInGame = true;
     bool animBg = true;
     bool closeToTray = true;
-    bool glThread = true;
-    bool asyncShaders = true;
-    bool vsyncOff = true;
-    bool pipewireBuffer = false; // Выключено: не вмешиваемся в аудиопоток Sober/PipeWire
-    bool mallocTrim = true;
+    bool vsyncOff = true; // MACOBLOX_VSYNC=0 when true, MACOBLOX_VSYNC=1 when false
     bool smartAutoCleanCache = true;
     bool lowRamFflags = false;
     bool disableTelemetry = true;
-    bool enableGamemode = true;
-    bool autoLaunchFromBrowser = true;
     bool autoReconnectOnCrash = false;
-    bool hideSoberDesktop = false;
     bool sidebarPinned = true;
 
     bool noShadows = false;
@@ -80,20 +68,13 @@ struct AppSettings {
     bool noPostFx = false;
     bool lowMeshes = false;
     bool greySky = false;
-    bool bringBackOof = true;
-    bool discordRpc = true;
-    bool serverRegionIndicator = true;
-    bool gamepadSupport = false; // Выключено: не переводить Roblox в режим консоли
-    bool enableHiDpi = false;
 
     bool showHudFps = false;
     bool clearFog = false;
-    int customMaxZoom = 99999;
+    int customMaxZoom = 9999;
     bool unlockInfiniteZoom = true;
-    bool noclipCamWalls = false;
     bool fullBright = false;
     bool showHitboxes = false;
-    bool wallhopPhysics = false;
 
     // 1. Стекло (Liquid Glass)
     int glassBlurStrength = 4;

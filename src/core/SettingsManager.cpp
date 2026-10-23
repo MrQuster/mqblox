@@ -9,12 +9,14 @@
 #include <QJsonParseError>
 #include <QRegularExpression>
 #include <QSaveFile>
-#include <QThread>
 #include <algorithm>
 
 namespace mqblox {
 
 static bool writeFileIfChanged(const QString &filePath, const QByteArray &newBytes, QString *errMsg = nullptr) {
+    QFileInfo fi(filePath);
+    QDir().mkpath(fi.absolutePath());
+
     QFile existing(filePath);
     if (existing.exists() && existing.open(QIODevice::ReadOnly)) {
         if (existing.readAll() == newBytes) {
@@ -27,7 +29,10 @@ static bool writeFileIfChanged(const QString &filePath, const QByteArray &newByt
         if (errMsg) *errMsg = "Не удалось открыть файл для записи: " + filePath;
         return false;
     }
-    sf.write(newBytes);
+    if (sf.write(newBytes) != newBytes.size()) {
+        if (errMsg) *errMsg = "Ошибка записи файла: " + filePath;
+        return false;
+    }
     if (!sf.commit()) {
         if (errMsg) *errMsg = "Ошибка атомарного сохранения файла: " + filePath;
         return false;
@@ -35,15 +40,17 @@ static bool writeFileIfChanged(const QString &filePath, const QByteArray &newByt
     return true;
 }
 
-
 SettingsManager::SettingsManager() {
     QDir().mkpath(mqDir());
     QDir().mkpath(accountsDir());
-    QDir().mkpath(QDir::homePath() + "/.config/mqblox");
+    QDir().mkpath(mqDir() + "/profiles");
+    QDir().mkpath(macobloxDataDir());
     m_accounts.push_back(AccountProfile{});
 }
 
 QString SettingsManager::mqDir() const {
+    const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
+    if (!testDir.isEmpty()) return testDir + "/mqblox";
     return QDir::homePath() + "/.local/share/mqblox";
 }
 
@@ -51,8 +58,29 @@ QString SettingsManager::accountsDir() const {
     return mqDir() + "/accounts";
 }
 
+QString SettingsManager::macobloxDataDir() const {
+    const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
+    if (!testDir.isEmpty()) return testDir + "/macoblox";
+    const QString xdgData = qEnvironmentVariable("XDG_DATA_HOME", QDir::homePath() + "/.local/share");
+    return xdgData + "/macoblox";
+}
+
+QString SettingsManager::robloxAppDir() const {
+    return macobloxDataDir() + "/RobloxPlayer.app";
+}
+
+QString SettingsManager::clientAppSettingsPath() const {
+    return robloxAppDir() + "/Contents/MacOS/ClientSettings/ClientAppSettings.json";
+}
+
+QString SettingsManager::darlingPrefixDir() const {
+    const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
+    if (!testDir.isEmpty()) return testDir + "/darling";
+    return qEnvironmentVariable("DPREFIX", QDir::homePath() + "/.darling");
+}
+
 QString SettingsManager::soberBaseDir() const {
-    return QDir::homePath() + "/.var/app/org.vinegarhq.Sober";
+    return macobloxDataDir();
 }
 
 AccountProfile *SettingsManager::activeAccount() {
@@ -67,14 +95,18 @@ AccountProfile *SettingsManager::activeAccount() {
 QString SettingsManager::parsePlaceUri(const QString &input) {
     QString s = input.trimmed();
     if (s.isEmpty()) return {};
-    if (s.startsWith("roblox://") || s.startsWith("roblox-player:")) return s;
+    if (s.startsWith("roblox://", Qt::CaseInsensitive) ||
+        s.startsWith("roblox-player:", Qt::CaseInsensitive)) {
+        return s;
+    }
 
     static const QRegularExpression rxDigits("^\\d+$");
     if (rxDigits.match(s).hasMatch()) {
         return "roblox://experiences/start?placeId=" + s;
     }
     static const QRegularExpression rxUrl(
-        "roblox\\.com/(?:[a-z]{2}/)?games/(\\d+)(?:[^?]*\\?[^#]*privateServerLinkCode=([A-Za-z0-9_-]+))?");
+        "roblox\\.com/(?:[a-z]{2}/)?games/(\\d+)(?:[^?]*\\?[^#]*privateServerLinkCode=([A-Za-z0-9_-]+))?",
+        QRegularExpression::CaseInsensitiveOption);
     auto m = rxUrl.match(s);
     if (m.hasMatch()) {
         QString placeId = m.captured(1);
@@ -88,23 +120,28 @@ QString SettingsManager::parsePlaceUri(const QString &input) {
 }
 
 void SettingsManager::loadAll() {
-    QString cfgV35 = QDir::homePath() + "/.config/mqblox/settings_v35.json";
-    QString cfgV34 = QDir::homePath() + "/.config/mqblox/settings_v34.json";
-    QString legacyV13 = mqDir() + "/settings_v13.json";
+    const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
+    const QString cfgDir = testDir.isEmpty() ? (QDir::homePath() + "/.config/mqblox") : (testDir + "/config");
+    const QString cfgV36 = cfgDir + "/settings_v36.json";
+    const QString cfgV35 = cfgDir + "/settings_v35.json";
+    const QString cfgV34 = cfgDir + "/settings_v34.json";
+    const QString legacyV13 = mqDir() + "/settings_v13.json";
 
     QString loadPath = legacyV13;
-    if (QFileInfo::exists(cfgV35)) loadPath = cfgV35;
+    if (QFileInfo::exists(cfgV36)) loadPath = cfgV36;
+    else if (QFileInfo::exists(cfgV35)) loadPath = cfgV35;
     else if (QFileInfo::exists(cfgV34)) loadPath = cfgV34;
 
     QFile f(loadPath);
     if (!f.open(QIODevice::ReadOnly)) return;
 
-    QJsonParseError perr;
+    QJsonParseError perr{};
     QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &perr);
     f.close();
     if (perr.error != QJsonParseError::NoError || !doc.isObject()) return;
 
     QJsonObject root = doc.object();
+    const int fileSchema = root.value("schemaVersion").toInt(0);
     m_activeAccountId = root.value("activeAccountId").toString("default");
     QJsonArray arr = root.value("accounts").toArray();
     if (!arr.isEmpty()) {
@@ -114,40 +151,28 @@ void SettingsManager::loadAll() {
             AccountProfile p;
             p.id = o.value("id").toString("default");
             p.label = o.value("label").toString("Main");
-            p.username = o.value("username").toString();
             p.displayName = o.value("displayName").toString(p.label);
-            p.userId = o.value("userId").toString().toULongLong();
-            p.robux = o.value("robux").toString("—");
+            if (p.displayName.trimmed().isEmpty()) p.displayName = p.label;
             m_accounts.push_back(p);
         }
     }
 
     QJsonObject s = root.value("settings").toObject();
+    if (s.isEmpty() && root.contains("targetFps")) {
+        // Legacy flat root schema (v13)
+        s = root;
+    }
     if (!s.isEmpty()) {
         SettingsRegistry::readFromJson(m_settings, s);
-        if (root.value("schemaVersion").toInt(0) < 38) {
-            m_settings.gamepadSupport = false;
-            m_settings.resMode = ResolutionMode::Auto;
-            m_settings.pipewireBuffer = false;
-        }
+    }
+
+    if (loadPath != cfgV36 || fileSchema != SettingsRegistry::kCurrentSchemaVersion) {
+        saveAll();
     }
 }
 
 bool SettingsManager::saveAll(QString *errMsg) {
-    if (!writeSoberConfigJson(errMsg)) return false;
-
-    QString localApps = QDir::homePath() + "/.local/share/applications";
-    QDir().mkpath(localApps);
-    QString soberDesk = localApps + "/org.vinegarhq.Sober.desktop";
-    if (m_settings.hideSoberDesktop) {
-        QSaveFile sf(soberDesk);
-        if (sf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            sf.write("[Desktop Entry]\nType=Application\nName=Sober\nNoDisplay=true\n");
-            sf.commit();
-        }
-    } else {
-        QFile::remove(soberDesk);
-    }
+    if (!writeClientAppSettingsJson(errMsg)) return false;
 
     QJsonObject s = SettingsRegistry::writeToJson(m_settings);
 
@@ -156,119 +181,55 @@ bool SettingsManager::saveAll(QString *errMsg) {
         QJsonObject o;
         o["id"] = acc.id;
         o["label"] = acc.label;
-        o["username"] = acc.username;
         o["displayName"] = acc.displayName;
-        o["userId"] = QString::number(acc.userId);
-        o["robux"] = acc.robux;
         arr.append(o);
     }
 
     QJsonObject root;
-    root["schemaVersion"] = 38;
+    root["schemaVersion"] = SettingsRegistry::kCurrentSchemaVersion;
     root["activeAccountId"] = m_activeAccountId;
     root["accounts"] = arr;
     root["settings"] = s;
 
     QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Indented);
 
-    QString cfgDir = QDir::homePath() + "/.config/mqblox";
+    const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
+    const QString cfgDir = testDir.isEmpty() ? (QDir::homePath() + "/.config/mqblox") : (testDir + "/config");
     QDir().mkpath(cfgDir);
     for (const QString &target : {
-             cfgDir + "/settings_v35.json",
+             cfgDir + "/settings_v36.json",
              mqDir() + "/settings_v13.json"}) {
-        writeFileIfChanged(target, payload);
+        if (!writeFileIfChanged(target, payload, errMsg)) {
+            return false;
+        }
     }
     return true;
 }
 
-bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
+QJsonObject SettingsManager::buildEffectiveFflags(QString *errMsg) const {
     QString rawCustom = m_settings.customFflagsJson.trimmed();
     if (rawCustom.isEmpty()) rawCustom = "{}";
 
-    QJsonParseError perr;
+    QJsonParseError perr{};
     QJsonDocument customDoc = QJsonDocument::fromJson(rawCustom.toUtf8(), &perr);
     if (perr.error != QJsonParseError::NoError || !customDoc.isObject()) {
         if (errMsg) *errMsg = "Ошибка синтаксиса JSON в FastFlags: " + perr.errorString();
-        return false;
+        return {};
     }
 
-    QString cfgDir = soberBaseDir() + "/config/sober";
-    QDir().mkpath(cfgDir);
-    QString cfgPath = cfgDir + "/config.json";
-    QString bakPath = cfgDir + "/config.json.mqblox.bak";
-
-    if (QFileInfo::exists(cfgPath) && !QFileInfo::exists(bakPath)) {
-        QFile::copy(cfgPath, bakPath);
-    }
-
-    QJsonObject soberCfg;
-    QJsonObject existingFflags;
-    {
-        QFile oldF(cfgPath);
-        if (oldF.open(QIODevice::ReadOnly)) {
-            QJsonParseError oldErr;
-            QJsonDocument oldDoc = QJsonDocument::fromJson(oldF.readAll(), &oldErr);
-            if (oldErr.error == QJsonParseError::NoError && oldDoc.isObject()) {
-                soberCfg = oldDoc.object();
-                existingFflags = soberCfg.value("fflags").toObject();
-            }
-            oldF.close();
-        }
-    }
-
-    static const QStringList kManagedKeys = {
-        "DFIntTaskSchedulerTargetFps", "FFlagTaskSchedulerLimitTargetFpsTo2402",
-        "FFlagGameBasicSettingsFramerateCap5", "FFlagDebugGraphicsPreferVulkan",
-        "FFlagDebugGraphicsDisableOpenGL", "FFlagDebugGraphicsPreferOpenGL",
-        "FFlagDebugGraphicsDisableVulkan", "DFFlagDebugRenderForceTechnologyVoxel",
-        "FFlagDebugForceFutureIsBrightPhase2", "FFlagDebugForceFutureIsBrightPhase3",
-        "DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride",
-        "FIntDebugForceMSAASamples", "DFIntDebugFRMQualityLevelOverride",
-        "FIntRomarkStartWithGraphicQualityLevel", "FIntRenderShadowIntensity",
-        "DFIntCullFactorPixelThresholdShadowMapHighQuality",
-        "DFIntCullFactorPixelThresholdShadowMapLowQuality", "FIntRenderShadowMapBias",
-        "FFlagDisablePostFx", "FFlagDebugSkyGray", "DFIntCSGLevelOfDetailSwitchingDistance",
-        "DFIntCSGLevelOfDetailSwitchingDistanceL12", "DFIntCSGLevelOfDetailSwitchingDistanceL23",
-        "DFIntCSGLevelOfDetailSwitchingDistanceL34", "DFIntHttpCacheCleanMinFilesRequired",
-        "FIntRenderLocalLightUpdatesMax", "DFIntTextureCompositorActiveJobs",
-        "FIntCameraMaxZoomDistance", "DFIntCameraMaxZoomDistance", "FIntCameraFarZPlane",
-        "FIntPoppercamPassthrough", "DFIntCullFactorPixelThresholdMainViewHighQuality",
-        "DFIntCullFactorPixelThresholdMainViewLowQuality", "FFlagDebugRenderingSetDeterministic",
-        "DFIntS2PhysicsSenderRate", "DFIntMaxMissedWorldStepsRemembered",
-        "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance", "FIntRenderGrassDetailStrands",
-        "FIntGrassMovementReducedMotionFactor", "DFIntConnectionMTUSize",
-        "FIntRakNetResendBufferArrayLength", "FFlagDebugDisplayFPS", "DFIntRuntimeConcurrency",
-        "FFlagDebugDisableTelemetryEphemeralCounter", "FFlagDebugDisableTelemetryEphemeralStat",
-        "FFlagDebugDisableTelemetryEventIngest", "FFlagDebugDisableTelemetryPoint",
-        "FFlagDebugDisableTelemetryV2Counter", "FFlagDebugDisableTelemetryV2Event",
-        "FFlagDebugDisableTelemetryV2Stat"
-    };
-    for (const QString &k : kManagedKeys) {
-        existingFflags.remove(k);
-    }
-
-    QJsonObject fflags = existingFflags;
+    QJsonObject fflags;
     const QJsonObject userCustomObj = customDoc.object();
     for (auto it = userCustomObj.begin(); it != userCustomObj.end(); ++it) {
         fflags[it.key()] = it.value();
     }
 
-    int fpsVal = m_settings.unlimitedFps ? 9999 : m_settings.targetFps;
+    const int fpsVal = m_settings.unlimitedFps ? 9999 : m_settings.targetFps;
     fflags["DFIntTaskSchedulerTargetFps"] = fpsVal;
     fflags["FFlagTaskSchedulerLimitTargetFpsTo2402"] = false;
     fflags["FFlagGameBasicSettingsFramerateCap5"] = true;
 
-    if (m_settings.graphicsApi == GraphicsApi::Vulkan) {
-        fflags["FFlagDebugGraphicsPreferVulkan"] = true;
-        fflags["FFlagDebugGraphicsDisableOpenGL"] = true;
-        fflags["FFlagDebugGraphicsPreferOpenGL"] = false;
-        fflags["FFlagDebugGraphicsDisableVulkan"] = false;
-    } else {
-        fflags["FFlagDebugGraphicsPreferOpenGL"] = true;
-        fflags["FFlagDebugGraphicsDisableOpenGL"] = false;
-        fflags["FFlagDebugGraphicsPreferVulkan"] = false;
-        fflags["FFlagDebugGraphicsDisableVulkan"] = true;
-    }
+    // macOS RobloxPlayer uses OpenGL 4.1 Core via Darling CGL + gl_profile.c
+    fflags["FFlagDebugGraphicsPreferOpenGL"] = true;
 
     if (m_settings.lighting == LightingMode::Voxel || m_settings.fullBright) {
         fflags["DFFlagDebugRenderForceTechnologyVoxel"] = true;
@@ -289,7 +250,6 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
     int msaaSamples = 0;
     if (m_settings.msaa == MsaaMode::X2) msaaSamples = 2;
     else if (m_settings.msaa == MsaaMode::X4) msaaSamples = 4;
-    else if (m_settings.msaa == MsaaMode::X8) msaaSamples = 8;
     if (msaaSamples > 0) {
         fflags["FIntDebugForceMSAASamples"] = msaaSamples;
     }
@@ -355,11 +315,6 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["FFlagDebugDisplayFPS"] = true;
     }
 
-    int threads = std::max(2, QThread::idealThreadCount());
-    if (m_settings.cpuVendor != CpuVendorMode::Auto) {
-        fflags["DFIntRuntimeConcurrency"] = threads;
-    }
-
     if (m_settings.disableTelemetry) {
         fflags["FFlagDebugDisableTelemetryEphemeralCounter"] = true;
         fflags["FFlagDebugDisableTelemetryEphemeralStat"] = true;
@@ -370,63 +325,163 @@ bool SettingsManager::writeSoberConfigJson(QString *errMsg) const {
         fflags["FFlagDebugDisableTelemetryV2Stat"] = true;
     }
 
-    soberCfg["bring_back_oof"] = m_settings.bringBackOof;
-    soberCfg["discord_rpc_enabled"] = m_settings.discordRpc;
-    soberCfg["enable_gamemode"] = m_settings.enableGamemode;
-    soberCfg["enable_hidpi"] = m_settings.enableHiDpi;
-    soberCfg["server_location_indicator_enabled"] = m_settings.serverRegionIndicator;
-    soberCfg["use_console_experience"] = m_settings.gamepadSupport;
-    soberCfg["touch_mode"] = "off";
-    soberCfg["disable_telemetry"] = m_settings.disableTelemetry;
-    soberCfg["graphics_optimization_mode"] = m_settings.optMode;
-    soberCfg["fflags"] = fflags;
+    return fflags;
+}
 
-    QByteArray jsonBytes = QJsonDocument(soberCfg).toJson(QJsonDocument::Indented);
-
-    if (!writeFileIfChanged(cfgPath, jsonBytes, errMsg)) {
+bool SettingsManager::writeClientAppSettingsJson(QString *errMsg) const {
+    QString err;
+    const QJsonObject managedFlags = buildEffectiveFflags(&err);
+    if (!err.isEmpty()) {
+        if (errMsg) *errMsg = err;
         return false;
     }
 
-    QString clientSettingsDir = soberBaseDir() + "/data/sober/appData/ClientSettings";
-    QDir().mkpath(clientSettingsDir);
-    writeFileIfChanged(clientSettingsDir + "/ClientAppSettings.json",
-                       QJsonDocument(fflags).toJson(QJsonDocument::Indented));
+    static const QStringList kManagedKeys = {
+        "DFIntTaskSchedulerTargetFps", "FFlagTaskSchedulerLimitTargetFpsTo2402",
+        "FFlagGameBasicSettingsFramerateCap5", "FFlagDebugGraphicsPreferVulkan",
+        "FFlagDebugGraphicsDisableOpenGL", "FFlagDebugGraphicsPreferOpenGL",
+        "FFlagDebugGraphicsDisableVulkan", "DFFlagDebugRenderForceTechnologyVoxel",
+        "FFlagDebugForceFutureIsBrightPhase2", "FFlagDebugForceFutureIsBrightPhase3",
+        "DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride",
+        "FIntDebugForceMSAASamples", "DFIntDebugFRMQualityLevelOverride",
+        "FIntRomarkStartWithGraphicQualityLevel", "FIntRenderShadowIntensity",
+        "DFIntCullFactorPixelThresholdShadowMapHighQuality",
+        "DFIntCullFactorPixelThresholdShadowMapLowQuality", "FIntRenderShadowMapBias",
+        "FFlagDisablePostFx", "FFlagDebugSkyGray", "DFIntCSGLevelOfDetailSwitchingDistance",
+        "DFIntCSGLevelOfDetailSwitchingDistanceL12", "DFIntCSGLevelOfDetailSwitchingDistanceL23",
+        "DFIntCSGLevelOfDetailSwitchingDistanceL34", "DFIntHttpCacheCleanMinFilesRequired",
+        "FIntRenderLocalLightUpdatesMax", "DFIntTextureCompositorActiveJobs",
+        "FIntCameraMaxZoomDistance", "DFIntCameraMaxZoomDistance",
+        "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance", "FIntRenderGrassDetailStrands",
+        "DFIntConnectionMTUSize", "FIntRakNetResendBufferArrayLength", "FFlagDebugDisplayFPS",
+        "FFlagDebugDisableTelemetryEphemeralCounter", "FFlagDebugDisableTelemetryEphemeralStat",
+        "FFlagDebugDisableTelemetryEventIngest", "FFlagDebugDisableTelemetryPoint",
+        "FFlagDebugDisableTelemetryV2Counter", "FFlagDebugDisableTelemetryV2Event",
+        "FFlagDebugDisableTelemetryV2Stat"
+    };
+
+    // 1. Write MacOBlox's RobloxPlayer.app/Contents/MacOS/ClientSettings/ClientAppSettings.json
+    const QString clientSettingsFile = clientAppSettingsPath();
+    QJsonObject clientObj;
+    {
+        QFile oldF(clientSettingsFile);
+        if (oldF.open(QIODevice::ReadOnly)) {
+            QJsonParseError oldErr{};
+            QJsonDocument oldDoc = QJsonDocument::fromJson(oldF.readAll(), &oldErr);
+            if (oldErr.error == QJsonParseError::NoError && oldDoc.isObject()) {
+                clientObj = oldDoc.object();
+            }
+        }
+    }
+    for (const QString &k : kManagedKeys) {
+        clientObj.remove(k);
+    }
+    for (auto it = managedFlags.begin(); it != managedFlags.end(); ++it) {
+        clientObj[it.key()] = it.value();
+    }
+    if (!writeFileIfChanged(clientSettingsFile,
+                            QJsonDocument(clientObj).toJson(QJsonDocument::Indented),
+                            errMsg)) {
+        return false;
+    }
+
+    // 2. Also preserve foreign keys in macobloxDataDir()/config/sober/config.json if present
+    const QString compatCfgPath = soberBaseDir() + "/config/sober/config.json";
+    if (QFileInfo::exists(compatCfgPath)) {
+        QJsonObject rootObj;
+        QJsonObject existingFflags;
+        QFile oldF(compatCfgPath);
+        if (oldF.open(QIODevice::ReadOnly)) {
+            QJsonParseError oldErr{};
+            QJsonDocument oldDoc = QJsonDocument::fromJson(oldF.readAll(), &oldErr);
+            if (oldErr.error == QJsonParseError::NoError && oldDoc.isObject()) {
+                rootObj = oldDoc.object();
+                existingFflags = rootObj.value("fflags").toObject();
+            }
+        }
+        for (const QString &k : kManagedKeys) {
+            existingFflags.remove(k);
+        }
+        for (auto it = managedFlags.begin(); it != managedFlags.end(); ++it) {
+            existingFflags[it.key()] = it.value();
+        }
+        rootObj.remove("bring_back_oof");
+        rootObj["use_console_experience"] = false;
+        rootObj["touch_mode"] = "off";
+        rootObj["fflags"] = existingFflags;
+        if (!writeFileIfChanged(compatCfgPath,
+                                QJsonDocument(rootObj).toJson(QJsonDocument::Indented),
+                                errMsg)) {
+            return false;
+        }
+    }
+
     return true;
 }
 
 bool SettingsManager::exportPresetToFile(const QString &filePath) const {
-    QString srcPath = QDir::homePath() + "/.config/mqblox/settings_v35.json";
-    if (!QFileInfo::exists(srcPath)) srcPath = mqDir() + "/settings_v13.json";
-    QFile src(srcPath);
-    if (!src.exists()) return false;
-    QFile::remove(filePath);
-    return src.copy(filePath);
+    QJsonObject root;
+    root["schemaVersion"] = SettingsRegistry::kCurrentSchemaVersion;
+    root["settings"] = SettingsRegistry::writeToJson(m_settings);
+    return writeFileIfChanged(filePath, QJsonDocument(root).toJson(QJsonDocument::Indented));
 }
 
 bool SettingsManager::importPresetFromFile(const QString &filePath, QString *errMsg) {
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly)) {
-        if (errMsg) *errMsg = "Не удалось открыть файл профиля";
+        if (errMsg) *errMsg = "Не удалось открыть файл профиля: " + filePath;
         return false;
     }
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &err);
+    QJsonParseError perr{};
+    QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &perr);
     f.close();
-    if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-        if (errMsg) *errMsg = "Некорректный JSON файла профиля";
+    if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (errMsg) *errMsg = "Некорректный JSON профиля: " + perr.errorString();
         return false;
     }
-    QString cfgDir = QDir::homePath() + "/.config/mqblox";
-    QDir().mkpath(cfgDir);
-    for (const QString &dstPath : {cfgDir + "/settings_v35.json", mqDir() + "/settings_v13.json"}) {
-        QSaveFile dst(dstPath);
-        if (dst.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            dst.write(doc.toJson(QJsonDocument::Indented));
-            dst.commit();
-        }
-    }
-    loadAll();
+    QJsonObject root = doc.object();
+    QJsonObject sObj = root.contains("settings") ? root.value("settings").toObject() : root;
+    SettingsRegistry::readFromJson(m_settings, sObj);
     return saveAll(errMsg);
+}
+
+QStringList SettingsManager::listNamedProfiles() const {
+    QDir d(mqDir() + "/profiles");
+    QStringList out;
+    for (const QFileInfo &fi : d.entryInfoList({"*.json"}, QDir::Files, QDir::Name)) {
+        out.append(fi.completeBaseName());
+    }
+    return out;
+}
+
+bool SettingsManager::saveNamedProfile(const QString &name, QString *errMsg) const {
+    QString clean = name.trimmed();
+    clean.replace(QRegularExpression(R"([^a-zA-Z0-9_\-\x{0400}-\x{04FF} ])"), "_");
+    clean = clean.simplified();
+    if (clean.isEmpty()) {
+        if (errMsg) *errMsg = "Имя профиля не может быть пустым";
+        return false;
+    }
+    QJsonObject root;
+    root["schemaVersion"] = SettingsRegistry::kCurrentSchemaVersion;
+    root["settings"] = SettingsRegistry::writeToJson(m_settings);
+    return writeFileIfChanged(mqDir() + "/profiles/" + clean + ".json",
+                              QJsonDocument(root).toJson(QJsonDocument::Indented),
+                              errMsg);
+}
+
+bool SettingsManager::loadNamedProfile(const QString &name, QString *errMsg) {
+    QString clean = name.trimmed();
+    clean.replace(QRegularExpression(R"([^a-zA-Z0-9_\-\x{0400}-\x{04FF} ])"), "_");
+    clean = clean.simplified();
+    return importPresetFromFile(mqDir() + "/profiles/" + clean + ".json", errMsg);
+}
+
+bool SettingsManager::deleteNamedProfile(const QString &name) const {
+    QString clean = name.trimmed();
+    clean.replace(QRegularExpression(R"([^a-zA-Z0-9_\-\x{0400}-\x{04FF} ])"), "_");
+    clean = clean.simplified();
+    return QFile::remove(mqDir() + "/profiles/" + clean + ".json");
 }
 
 } // namespace mqblox

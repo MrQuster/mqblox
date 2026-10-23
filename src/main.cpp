@@ -1,6 +1,7 @@
 #include "ui/MainWindow.hpp"
 #include "ui/Widgets.hpp"
 #include <QApplication>
+#include <QIcon>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QLoggingCategory>
@@ -28,15 +29,13 @@ static void applyGlobalDarkPalette(QApplication &app) {
 }
 
 int main(int argc, char *argv[]) {
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS",
-            "--disable-zero-copy --disable-gpu-memory-buffer-video-frames "
-            "--disable-quic --enable-ParallelDownloading --disable-SmoothScrolling");
-
-    QLoggingCategory::setFilterRules("qt.qpa.wayland.textinput=false\njs=false\nqt.core.qobject.connect=false");
+    QLoggingCategory::setFilterRules("qt.qpa.wayland.textinput=false\nqt.core.qobject.connect=false");
 
     QApplication app(argc, argv);
     app.setApplicationName("mqblox");
+    app.setApplicationDisplayName("MqBlox");
     app.setDesktopFileName("mqblox");
+    app.setWindowIcon(QIcon::fromTheme("mqblox", QIcon(":/mqblox.svg")));
     app.setQuitOnLastWindowClosed(false);
 
     QLocalSocket probe;

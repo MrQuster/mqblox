@@ -29,6 +29,8 @@ struct SettingDescriptor {
 
 class SettingsRegistry {
 public:
+    static constexpr int kCurrentSchemaVersion = 36;
+
     static const QVector<SettingDescriptor> &all() {
         static const QVector<SettingDescriptor> kRegistry = buildRegistry();
         return kRegistry;
@@ -117,7 +119,8 @@ public:
     }
 
     static void readFromJson(AppSettings &s, const QJsonObject &obj) {
-        s.schemaVersion = 38;
+        s = AppSettings{};
+        s.schemaVersion = kCurrentSchemaVersion;
         for (const auto &d : all()) {
             if (!obj.contains(d.key) || obj.value(d.key).isNull() || obj.value(d.key).isUndefined()) {
                 d.setter(s, d.defaultValue);
@@ -134,52 +137,45 @@ public:
                 d.setter(s, str);
             }
         }
-        if (s.optMode.isEmpty()) s.optMode = "performance";
         if (s.customFflagsJson.trimmed().isEmpty()) s.customFflagsJson = "{}";
-        s.noclipCamWalls = false;
-        s.wallhopPhysics = false;
         if (s.noShadows && s.ultraShadows) s.ultraShadows = false;
     }
 
     static QJsonObject writeToJson(const AppSettings &s) {
         QJsonObject obj;
-        obj["schemaVersion"] = 38;
+        obj["schemaVersion"] = kCurrentSchemaVersion;
         for (const auto &d : all()) {
-            QVariant val = d.getter(s);
+            QVariant v = d.getter(s);
             if (d.type == SettingValueType::Bool) {
-                obj[d.key] = val.toBool();
+                obj[d.key] = v.toBool();
             } else if (d.type == SettingValueType::Int) {
-                obj[d.key] = std::clamp(val.toInt(), d.minInt, d.maxInt);
+                obj[d.key] = std::clamp(v.toInt(), d.minInt, d.maxInt);
             } else if (d.type == SettingValueType::String) {
-                obj[d.key] = val.toString();
+                obj[d.key] = v.toString();
             }
         }
-        obj["noclipCamWalls"] = false;
-        obj["wallhopPhysics"] = false;
         return obj;
     }
 
 private:
     static QVector<SettingDescriptor> buildRegistry() {
-        AppSettings def;
         QVector<SettingDescriptor> reg;
+        AppSettings def;
 
-        auto addBool = [&](const char *key, SettingCategory cat, const char *title, const char *desc,
-                           bool restart, bool AppSettings::*member) {
+        auto addBool = [&](const QString &key, SettingCategory cat, const QString &title,
+                           const QString &desc, bool restart, bool AppSettings::*member) {
             reg.push_back(SettingDescriptor{
-                QString::fromUtf8(key), SettingValueType::Bool, cat,
-                QString::fromUtf8(title), QString::fromUtf8(desc), restart,
+                key, SettingValueType::Bool, cat, title, desc, restart,
                 def.*member, 0, 1,
                 [member](const AppSettings &s) -> QVariant { return s.*member; },
                 [member](AppSettings &s, const QVariant &v) { s.*member = v.toBool(); }
             });
         };
 
-        auto addInt = [&](const char *key, SettingCategory cat, const char *title, const char *desc,
-                          bool restart, int minV, int maxV, int AppSettings::*member) {
+        auto addInt = [&](const QString &key, SettingCategory cat, const QString &title,
+                          const QString &desc, bool restart, int minV, int maxV, int AppSettings::*member) {
             reg.push_back(SettingDescriptor{
-                QString::fromUtf8(key), SettingValueType::Int, cat,
-                QString::fromUtf8(title), QString::fromUtf8(desc), restart,
+                key, SettingValueType::Int, cat, title, desc, restart,
                 def.*member, minV, maxV,
                 [member](const AppSettings &s) -> QVariant { return s.*member; },
                 [member, minV, maxV](AppSettings &s, const QVariant &v) {
@@ -188,23 +184,21 @@ private:
             });
         };
 
-        auto addString = [&](const char *key, SettingCategory cat, const char *title, const char *desc,
-                             bool restart, QString AppSettings::*member) {
+        auto addString = [&](const QString &key, SettingCategory cat, const QString &title,
+                             const QString &desc, bool restart, QString AppSettings::*member) {
             reg.push_back(SettingDescriptor{
-                QString::fromUtf8(key), SettingValueType::String, cat,
-                QString::fromUtf8(title), QString::fromUtf8(desc), restart,
+                key, SettingValueType::String, cat, title, desc, restart,
                 def.*member, 0, 0,
                 [member](const AppSettings &s) -> QVariant { return s.*member; },
                 [member](AppSettings &s, const QVariant &v) { s.*member = v.toString(); }
             });
         };
 
-        auto addEnum = [&](const char *key, SettingCategory cat, const char *title, const char *desc,
-                           bool restart, int minV, int maxV, auto member) {
+        auto addEnum = [&](const QString &key, SettingCategory cat, const QString &title,
+                           const QString &desc, bool restart, int minV, int maxV, auto member) {
             using EnumT = std::decay_t<decltype(def.*member)>;
             reg.push_back(SettingDescriptor{
-                QString::fromUtf8(key), SettingValueType::Int, cat,
-                QString::fromUtf8(title), QString::fromUtf8(desc), restart,
+                key, SettingValueType::Int, cat, title, desc, restart,
                 static_cast<int>(def.*member), minV, maxV,
                 [member](const AppSettings &s) -> QVariant { return static_cast<int>(s.*member); },
                 [member, minV, maxV](AppSettings &s, const QVariant &v) {
@@ -213,96 +207,90 @@ private:
             });
         };
 
-        addEnum("resMode", SettingCategory::System, "Разрешение рендера", "Масштаб окна игры", true, 0, 3, &AppSettings::resMode);
-        addEnum("gpuVendor", SettingCategory::System, "Профиль видеокарты", "Оптимизация драйвера AMD/NVIDIA/Intel", true, 0, 3, &AppSettings::gpuVendor);
-        addEnum("cpuVendor", SettingCategory::System, "Профиль процессора", "Планировщик потоков CPU", true, 0, 2, &AppSettings::cpuVendor);
-        addEnum("windowDriver", SettingCategory::System, "Оконный протокол", "Wayland или X11 (XWayland)", true, 0, 2, &AppSettings::windowDriver);
+        // System & MacOBlox Runtime
+        addEnum("resMode", SettingCategory::System, "Режим разрешения окна", "Размер окна лаунчера", false, 0, 3, &AppSettings::resMode);
+        addInt("mouseSensitivityPct", SettingCategory::System, "Чувствительность мыши MacOBlox (%)", "MACOBLOX_MOUSE_SENSITIVITY (10..200%)", true, 10, 200, &AppSettings::mouseSensitivityPct);
+        addBool("hideMenuBar", SettingCategory::System, "Скрывать верхнее меню macOS", "MACOBLOX_HIDE_MENU_BAR в окне игры", true, &AppSettings::hideMenuBar);
+        addInt("dnsProvider", SettingCategory::System, "DNS-over-TLS провайдер", "0=Системный, 1=Quad9, 2=Cloudflare, 3=Google, 4=Свой IP", true, 0, 4, &AppSettings::dnsProvider);
+        addString("dnsCustom", SettingCategory::System, "Свой DNS-over-TLS IP", "IPv4 адрес сервера DoT (порт 853)", true, &AppSettings::dnsCustom);
+        addBool("fpsLog", SettingCategory::System, "Логировать FPS (gl_profile.c)", "MACOBLOX_FPS_LOG=1", true, &AppSettings::fpsLog);
+        addBool("traceUdp", SettingCategory::System, "Трассировка UDP и детектор фризов", "MACOBLOX_TRACE_UDP=1", true, &AppSettings::traceUdp);
+        addBool("traceLock", SettingCategory::System, "Трассировка psynch_mutex", "MACOBLOX_TRACE_LOCK=1", true, &AppSettings::traceLock);
+        addBool("traceGl", SettingCategory::System, "Трассировка CGL / OpenGL", "MACOBLOX_TRACE_GL=1", true, &AppSettings::traceGl);
+        addBool("diagnosticSignals", SettingCategory::System, "Дамп регистров при сбоях", "MACOBLOX_DIAGNOSTIC_SIGNALS=1", true, &AppSettings::diagnosticSignals);
 
-        addBool("returnToMqBloxOnLeave", SettingCategory::System, "Возвращать в MqBlox при выходе", "Разворачивать лаунчер после закрытия плейса", false, &AppSettings::returnToMqBloxOnLeave);
-        addBool("pauseWebInGame", SettingCategory::System, "Замораживать браузер в игре", "0% нагрузки от браузера во время игры", false, &AppSettings::pauseWebInGame);
-        addBool("animBg", SettingCategory::Appearance, "Анимированный видеофон", "Плавное вращение чёрной дыры", false, &AppSettings::animBg);
-        addBool("closeToTray", SettingCategory::System, "Сворачивать в трей при закрытии", "Оставлять лаунчер в системном лотке", false, &AppSettings::closeToTray);
-        addBool("glThread", SettingCategory::System, "Многопоточный OpenGL/Vulkan", "mesa_glthread и RADV_PERFTEST=gpl", true, &AppSettings::glThread);
-        addBool("asyncShaders", SettingCategory::System, "Асинхронный кэш шейдеров", "Убирает микрофризы при подгрузке эффектов", true, &AppSettings::asyncShaders);
-        addBool("vsyncOff", SettingCategory::System, "Отключить VSync драйвера", "vblank_mode=0", true, &AppSettings::vsyncOff);
-        addBool("pipewireBuffer", SettingCategory::System, "Нативный аудиорежим Sober", "Звуком и микрофоном управляет сам Sober в настройках игры", true, &AppSettings::pipewireBuffer);
-        addBool("mallocTrim", SettingCategory::System, "Сжатие неиспользуемой ОЗУ", "Автоматический возврат памяти системе", true, &AppSettings::mallocTrim);
-        addBool("smartAutoCleanCache", SettingCategory::System, "Автоочистка старого кэша", "Очистка временных файлов", false, &AppSettings::smartAutoCleanCache);
-        addBool("lowRamFflags", SettingCategory::System, "Режим экономии ОЗУ (Low-RAM)", "Уменьшает буферы текстур и света", true, &AppSettings::lowRamFflags);
-        addBool("disableTelemetry", SettingCategory::System, "Отключить телеметрию Roblox", "Блокирует отправку аналитики", true, &AppSettings::disableTelemetry);
-        addBool("enableGamemode", SettingCategory::System, "Включить Feral GameMode", "Приоритет планировщика ядра Linux", true, &AppSettings::enableGamemode);
-        addBool("autoLaunchFromBrowser", SettingCategory::System, "Перехват ссылок roblox://", "Автоматический вход с сайта Roblox", false, &AppSettings::autoLaunchFromBrowser);
-        addBool("autoReconnectOnCrash", SettingCategory::System, "Автоперезаход при вылете", "Повторный запуск при сбое клиента", false, &AppSettings::autoReconnectOnCrash);
-        addBool("hideSoberDesktop", SettingCategory::System, "Скрыть дубликат ярлыка Sober", "Оставить в меню только иконку MqBlox", false, &AppSettings::hideSoberDesktop);
-        addBool("sidebarPinned", SettingCategory::Layout, "Закрепить боковую панель", "Не сворачивать меню при уводе мыши", false, &AppSettings::sidebarPinned);
+        addBool("returnToMqBloxOnLeave", SettingCategory::General, "Возврат в MqBlox при выходе", "Показывать окно лаунчера после выхода с сервера", false, &AppSettings::returnToMqBloxOnLeave);
+        addBool("animBg", SettingCategory::Appearance, "Анимированный фон TON 618", "3D-рендер аккреционного диска", false, &AppSettings::animBg);
+        addBool("closeToTray", SettingCategory::General, "Сворачивать в трей", "Оставлять иконку в системном лотке", false, &AppSettings::closeToTray);
+        addBool("vsyncOff", SettingCategory::System, "Отключить VSync в EGL", "MACOBLOX_VSYNC=0 (eglSwapInterval 0)", true, &AppSettings::vsyncOff);
+        addBool("smartAutoCleanCache", SettingCategory::System, "Авто-очистка кэша", "Очищать старый HTTP-кэш (>500 МБ)", false, &AppSettings::smartAutoCleanCache);
+        addBool("lowRamFflags", SettingCategory::System, "Экономия ОЗУ (Low-RAM FFlags)", "Быстрая выгрузка неиспользуемых мешей", true, &AppSettings::lowRamFflags);
+        addBool("disableTelemetry", SettingCategory::System, "Отключить телеметрию Roblox", "Блокировать отправку диагностических счётчиков", true, &AppSettings::disableTelemetry);
+        addBool("autoReconnectOnCrash", SettingCategory::General, "Авто-перезаход при сбое", "Перезапускать клиент при ненулевом коде выхода", false, &AppSettings::autoReconnectOnCrash);
+        addBool("sidebarPinned", SettingCategory::Layout, "Закрепить боковую панель", "Не сворачивать меню навигации", false, &AppSettings::sidebarPinned);
 
-        addEnum("graphicsApi", SettingCategory::Graphics, "Графический API", "Vulkan или OpenGL", true, 0, 1, &AppSettings::graphicsApi);
-        addString("optMode", SettingCategory::Graphics, "Профиль оптимизации Sober", "performance / balanced / quality", true, &AppSettings::optMode);
-        addEnum("lighting", SettingCategory::Graphics, "Технология освещения", "Voxel, ShadowMap или Future Phase 3", true, 0, 3, &AppSettings::lighting);
-        addEnum("textureQuality", SettingCategory::Graphics, "Качество текстур", "Уровень детализации 0..3", true, 0, 4, &AppSettings::textureQuality);
-        addEnum("msaa", SettingCategory::Graphics, "Сглаживание MSAA", "Off / 2x / 4x / 8x", true, 0, 3, &AppSettings::msaa);
-        addInt("targetFps", SettingCategory::Graphics, "Целевой лимит FPS", "Максимальная частота кадров (30..9999)", true, 30, 9999, &AppSettings::targetFps);
-        addBool("unlimitedFps", SettingCategory::Graphics, "Безлимитный FPS (9999)", "Снять ограничение кадров полностью", true, &AppSettings::unlimitedFps);
-        addInt("frmQualityLevel", SettingCategory::Graphics, "Уровень графики FRM", "Ступень рендера (0..21)", true, 0, 21, &AppSettings::frmQualityLevel);
+        // Graphics & FastFlags (macOS OpenGL Core Profile)
+        addEnum("lighting", SettingCategory::Graphics, "Технология освещения", "[Предположительно: белый список FFlag] Voxel / ShadowMap / Future Phase 3", true, 0, 3, &AppSettings::lighting);
+        addEnum("textureQuality", SettingCategory::Graphics, "Качество текстур", "[Предположительно: белый список FFlag] DFIntTextureQualityOverride", true, 0, 4, &AppSettings::textureQuality);
+        addEnum("msaa", SettingCategory::Graphics, "Сглаживание MSAA (OpenGL)", "[Подтверждён в MacOBlox] FIntDebugForceMSAASamples (0/2x/4x, активно и на AMD через gl_profile.c)", true, 0, 2, &AppSettings::msaa);
+        addInt("targetFps", SettingCategory::Graphics, "Лимит кадров (FPS)", "[Подтверждён в MacOBlox] DFIntTaskSchedulerTargetFps (15..9999)", true, 15, 9999, &AppSettings::targetFps);
+        addBool("unlimitedFps", SettingCategory::Graphics, "Безлимитный FPS (9999)", "[Подтверждён в MacOBlox] DFIntTaskSchedulerTargetFps=9999 + MACOBLOX_VSYNC=0", true, &AppSettings::unlimitedFps);
+        addInt("frmQualityLevel", SettingCategory::Graphics, "Уровень графики FRM (0..21)", "[Подтверждён в MacOBlox] DFIntDebugFRMQualityLevelOverride", true, 0, 21, &AppSettings::frmQualityLevel);
+        addBool("noShadows", SettingCategory::Graphics, "Отключить тени", "[Подтверждён в MacOBlox] FIntRenderShadowIntensity = 0", true, &AppSettings::noShadows);
+        addBool("ultraShadows", SettingCategory::Graphics, "Ультра-тени", "[Предположительно: белый список FFlag] FIntRenderShadowIntensity = 100", true, &AppSettings::ultraShadows);
+        addBool("noPostFx", SettingCategory::Graphics, "Отключить PostFX", "[Предположительно: белый список FFlag] FFlagDisablePostFx = true", true, &AppSettings::noPostFx);
+        addBool("lowMeshes", SettingCategory::Graphics, "Упростить дальние модели", "[Предположительно: белый список FFlag] CSG LOD = 0", true, &AppSettings::lowMeshes);
+        addBool("greySky", SettingCategory::Graphics, "Упрощённое небо", "[Предположительно: белый список FFlag] FFlagDebugSkyGray = true", true, &AppSettings::greySky);
+        addString("customFflagsJson", SettingCategory::Graphics, "Пользовательские FastFlags (JSON)", "Словарь дополнительных флагов (применяются только флаги из белого списка клиента)", true, &AppSettings::customFflagsJson);
 
-        addBool("noShadows", SettingCategory::Graphics, "Отключить все тени", "Повышает FPS и осветляет карту", true, &AppSettings::noShadows);
-        addBool("ultraShadows", SettingCategory::Graphics, "Ультра-чёткие тени", "Максимальная детализация теней", true, &AppSettings::ultraShadows);
-        addBool("noPostFx", SettingCategory::Graphics, "Отключить PostFX", "Убирает Bloom, Blur и солнечные лучи", true, &AppSettings::noPostFx);
-        addBool("lowMeshes", SettingCategory::Graphics, "Упростить дальние меши", "Быстрое переключение LOD", true, &AppSettings::lowMeshes);
-        addBool("greySky", SettingCategory::Graphics, "Нейтральное серое небо", "Убирает текстуры облаков", true, &AppSettings::greySky);
-        addBool("bringBackOof", SettingCategory::Graphics, "Классический звук Oof", "Возвращает старый звук смерти", true, &AppSettings::bringBackOof);
-        addBool("discordRpc", SettingCategory::Graphics, "Статус в Discord (Rich Presence)", "Показывать игру в профиле Discord", true, &AppSettings::discordRpc);
-        addBool("serverRegionIndicator", SettingCategory::Graphics, "Индикатор региона сервера", "Показывать локацию сервера", true, &AppSettings::serverRegionIndicator);
-        addBool("gamepadSupport", SettingCategory::Graphics, "Режим консоли (Console UI)", "Включает интерфейс Xbox/PS (выключите для обычного ПК-режима)", true, &AppSettings::gamepadSupport);
-        addBool("enableHiDpi", SettingCategory::Graphics, "Масштабирование HiDPI в игре", "Чёткий интерфейс на 2K/4K экранах", true, &AppSettings::enableHiDpi);
-        addString("customFflagsJson", SettingCategory::Graphics, "Пользовательские FastFlags (JSON)", "Собственный JSON-объект флагов", true, &AppSettings::customFflagsJson);
+        // Tweaks & Camera
+        addEnum("camZoom", SettingCategory::Tweaks, "Пресет зума камеры", "[Предположительно: белый список FFlag] FIntCameraMaxZoomDistance", true, 0, 3, &AppSettings::camZoom);
+        addEnum("netProfile", SettingCategory::Tweaks, "Сетевой профиль MTU/RakNet", "[Предположительно: белый список FFlag] DFIntRakNetMtuValueInBytes", true, 0, 1, &AppSettings::netProfile);
+        addBool("showHudFps", SettingCategory::Tweaks, "Счётчик FPS в игре", "[Подтверждён: MACOBLOX_FPS_LOG=1 + FFlagDebugDisplayFPS]", true, &AppSettings::showHudFps);
+        addBool("clearFog", SettingCategory::Tweaks, "Убрать 3D-траву", "[Подтверждён в MacOBlox] FIntFRMMinGrassDistance / FIntFRMMaxGrassDistance = 0", true, &AppSettings::clearFog);
+        addInt("customMaxZoom", SettingCategory::Tweaks, "Макс. дистанция зума", "[Предположительно: белый список FFlag] FIntCameraMaxZoomDistance (10..9999)", true, 10, 9999, &AppSettings::customMaxZoom);
+        addBool("unlockInfiniteZoom", SettingCategory::Tweaks, "Разблокировать дальний зум", "[Предположительно: белый список FFlag] Применять customMaxZoom", true, &AppSettings::unlockInfiniteZoom);
+        addBool("fullBright", SettingCategory::Tweaks, "FullBright (высветление)", "[Частично подтверждён] FIntRenderShadowIntensity=0 + Voxel/PostFX FFlags", true, &AppSettings::fullBright);
+        addBool("showHitboxes", SettingCategory::Tweaks, "Упрощение геометрии (LOD 0)", "[Предположительно: белый список FFlag] Минимальная детализация CSG", true, &AppSettings::showHitboxes);
 
-        addEnum("camZoom", SettingCategory::Tweaks, "Пресет дистанции камеры", "Быстрый выбор дальности обзора", true, 0, 3, &AppSettings::camZoom);
-        addEnum("netProfile", SettingCategory::Tweaks, "Сетевой пакетный профиль", "MTU 1396 или стандартный", true, 0, 1, &AppSettings::netProfile);
-        addBool("showHudFps", SettingCategory::Tweaks, "Счётчик FPS на экране", "Индикатор кадров и GALLIUM_HUD", true, &AppSettings::showHudFps);
-        addBool("clearFog", SettingCategory::Tweaks, "Убрать 3D-траву на ландшафте", "Чистый обзор поверхности", true, &AppSettings::clearFog);
-        addInt("customMaxZoom", SettingCategory::Tweaks, "Максимальная дистанция зума", "Лимит отдаления камеры в студах", true, 128, 100000, &AppSettings::customMaxZoom);
-        addBool("unlockInfiniteZoom", SettingCategory::Tweaks, "Разблокировать отдаление камеры", "Применяет пользовательский лимит студов", true, &AppSettings::unlockInfiniteZoom);
-        addBool("fullBright", SettingCategory::Tweaks, "Высветление локаций (FullBright)", "Voxel-рендер без теней и темноты", true, &AppSettings::fullBright);
-        addBool("showHitboxes", SettingCategory::Tweaks, "Упростить геометрию объектов (LOD 0)", "Низкополигональные модели", true, &AppSettings::showHitboxes);
+        // Appearance, Layout & Accessibility (HyperOS 4 Liquid Glass)
+        addInt("glassBlurStrength", SettingCategory::Appearance, "Сила размытия стекла", "0..8", false, 0, 8, &AppSettings::glassBlurStrength);
+        addInt("glassOpacityPct", SettingCategory::Appearance, "Непрозрачность стекла (%)", "2..90%", false, 2, 90, &AppSettings::glassOpacityPct);
+        addInt("borderThicknessPx", SettingCategory::Appearance, "Толщина контура (x0.1 px)", "5..25", false, 5, 25, &AppSettings::borderThicknessPx);
+        addInt("borderBrightnessPct", SettingCategory::Appearance, "Яркость блика грани (%)", "20..200%", false, 20, 200, &AppSettings::borderBrightnessPct);
+        addInt("glassSaturationPct", SettingCategory::Appearance, "Насыщенность преломления (%)", "80..220%", false, 80, 220, &AppSettings::glassSaturationPct);
+        addInt("specularStrengthPct", SettingCategory::Appearance, "Сила купольного блика (%)", "0..200%", false, 0, 200, &AppSettings::specularStrengthPct);
+        addInt("shadowStrengthPct", SettingCategory::Appearance, "Глубина теней (%)", "0..200%", false, 0, 200, &AppSettings::shadowStrengthPct);
+        addInt("cornerRadiusMode", SettingCategory::Appearance, "Скругление углов", "0..2", false, 0, 2, &AppSettings::cornerRadiusMode);
+        addInt("glassStyleMode", SettingCategory::Appearance, "Стиль фактуры стекла", "0..2", false, 0, 2, &AppSettings::glassStyleMode);
 
-        addInt("glassBlurStrength", SettingCategory::Appearance, "Сила размытия фона", "Радиус размытия подложки (0..8)", false, 0, 8, &AppSettings::glassBlurStrength);
-        addInt("glassOpacityPct", SettingCategory::Appearance, "Непрозрачность панелей (%)", "Плотность карточек (2..60%)", false, 2, 60, &AppSettings::glassOpacityPct);
-        addInt("borderThicknessPx", SettingCategory::Appearance, "Толщина рамки (×0.1 px)", "5..25 (10 = 1.0px)", false, 5, 25, &AppSettings::borderThicknessPx);
-        addInt("borderBrightnessPct", SettingCategory::Appearance, "Яркость рамок (%)", "Интенсивность свечения граней (20..180%)", false, 20, 180, &AppSettings::borderBrightnessPct);
-        addInt("glassSaturationPct", SettingCategory::Appearance, "Насыщенность подложки (%)", "Сочность цвета под стеклом (80..220%)", false, 80, 220, &AppSettings::glassSaturationPct);
-        addInt("specularStrengthPct", SettingCategory::Appearance, "Сила бликов стекла (%)", "Яркость верхнего блика и курсора (0..200%)", false, 0, 200, &AppSettings::specularStrengthPct);
-        addInt("shadowStrengthPct", SettingCategory::Appearance, "Сила внешних теней (%)", "Глубина тени под карточками (0..200%)", false, 0, 200, &AppSettings::shadowStrengthPct);
-        addInt("cornerRadiusMode", SettingCategory::Appearance, "Радиус скругления", "0 = Компактный, 1 = Стандартный, 2 = Круглый", false, 0, 2, &AppSettings::cornerRadiusMode);
-        addInt("glassStyleMode", SettingCategory::Appearance, "Стиль стекла", "0 = Прозрачное, 1 = Матовое, 2 = Тонированное", false, 0, 2, &AppSettings::glassStyleMode);
+        addInt("themeMode", SettingCategory::Appearance, "Цветовая тема", "0=Тёмная, 1=Светлая, 2=Системная", false, 0, 2, &AppSettings::themeMode);
+        addInt("accentPreset", SettingCategory::Appearance, "Акцентный цвет", "0..4", false, 0, 4, &AppSettings::accentPreset);
+        addString("customAccentHex", SettingCategory::Appearance, "Свой HEX-цвет акцента", "#RRGGBB", false, &AppSettings::customAccentHex);
+        addBool("chameleonEnabled", SettingCategory::Appearance, "Адаптивный Хамелеон", "Подстройка под цвета TON 618", false, &AppSettings::chameleonEnabled);
+        addInt("chameleonSpeedPct", SettingCategory::Appearance, "Скорость Хамелеона (%)", "5..100%", false, 5, 100, &AppSettings::chameleonSpeedPct);
+        addInt("chameleonStrengthPct", SettingCategory::Appearance, "Насыщенность Хамелеона (%)", "20..150%", false, 20, 150, &AppSettings::chameleonStrengthPct);
+        addInt("borderColorSource", SettingCategory::Appearance, "Источник цвета граней", "0..2", false, 0, 2, &AppSettings::borderColorSource);
+        addInt("textColorMode", SettingCategory::Appearance, "Контраст текста", "0..2", false, 0, 2, &AppSettings::textColorMode);
 
-        addInt("themeMode", SettingCategory::Appearance, "Цветовая тема", "0 = Тёмная, 1 = Светлая, 2 = Авто", false, 0, 2, &AppSettings::themeMode);
-        addInt("accentPreset", SettingCategory::Appearance, "Палитра акцента", "0 = Голубой, 1 = Золотой, 2 = Изумрудный, 3 = Фиолетовый, 4 = Свой HEX", false, 0, 4, &AppSettings::accentPreset);
-        addString("customAccentHex", SettingCategory::Appearance, "Свой HEX-цвет акцента", "Например #38BDF8", false, &AppSettings::customAccentHex);
-        addBool("chameleonEnabled", SettingCategory::Appearance, "Эффект Хамелеона", "Адаптация цвета рамок под видеофон", false, &AppSettings::chameleonEnabled);
-        addInt("chameleonSpeedPct", SettingCategory::Appearance, "Скорость Хамелеона (%)", "Скорость перетекания оттенков (5..100%)", false, 5, 100, &AppSettings::chameleonSpeedPct);
-        addInt("chameleonStrengthPct", SettingCategory::Appearance, "Сила Хамелеона (%)", "Насыщенность адаптивного цвета (20..150%)", false, 20, 150, &AppSettings::chameleonStrengthPct);
-        addInt("borderColorSource", SettingCategory::Appearance, "Источник цвета рамки", "0 = Из видео, 1 = Акцент, 2 = Фиксированный", false, 0, 2, &AppSettings::borderColorSource);
-        addInt("textColorMode", SettingCategory::Appearance, "Цвет текста", "0 = Авто по контрасту, 1 = Светлый, 2 = Тёмный", false, 0, 2, &AppSettings::textColorMode);
+        addInt("backdropType", SettingCategory::Appearance, "Тип фона", "0..3", false, 0, 3, &AppSettings::backdropType);
+        addString("customBackdropPath", SettingCategory::Appearance, "Путь к своему фону", "Файл изображения или видео", false, &AppSettings::customBackdropPath);
+        addInt("backdropDimPct", SettingCategory::Appearance, "Затемнение фона (%)", "0..80%", false, 0, 80, &AppSettings::backdropDimPct);
+        addInt("videoFpsLimit", SettingCategory::Appearance, "Лимит FPS фона", "15..60", false, 15, 60, &AppSettings::videoFpsLimit);
+        addBool("pauseOnFocusLoss", SettingCategory::Appearance, "Пауза фона без фокуса", "0% CPU при неактивном окне", false, &AppSettings::pauseOnFocusLoss);
 
-        addInt("backdropType", SettingCategory::Appearance, "Тип заднего фона", "0 = Видео, 1 = Картинка, 2 = Градиент, 3 = Свой файл", false, 0, 3, &AppSettings::backdropType);
-        addString("customBackdropPath", SettingCategory::Appearance, "Путь к своему фону", "Локальный файл .mp4 / .png / .jpg", false, &AppSettings::customBackdropPath);
-        addInt("backdropDimPct", SettingCategory::Appearance, "Затемнение фона (%)", "Дополнительное затемнение фона (0..85%)", false, 0, 85, &AppSettings::backdropDimPct);
-        addInt("videoFpsLimit", SettingCategory::Appearance, "Лимит FPS видеофона", "15, 24 или 30 FPS", false, 15, 60, &AppSettings::videoFpsLimit);
-        addBool("pauseOnFocusLoss", SettingCategory::Appearance, "Пауза фона вне фокуса", "Останавливать видео при потере фокуса", false, &AppSettings::pauseOnFocusLoss);
-
-        addBool("animationsEnabled", SettingCategory::Appearance, "Анимации интерфейса", "Плавные переходы", false, &AppSettings::animationsEnabled);
+        addBool("animationsEnabled", SettingCategory::Appearance, "Пружинные анимации", "Плавный отклик элементов", false, &AppSettings::animationsEnabled);
         addInt("animSpeedPct", SettingCategory::Appearance, "Скорость анимаций (%)", "50..200%", false, 50, 200, &AppSettings::animSpeedPct);
-        addInt("animStyle", SettingCategory::Appearance, "Стиль анимаций", "0 = Плавные, 1 = Пружинные, 2 = Без анимаций", false, 0, 2, &AppSettings::animStyle);
-        addBool("cursorGlowFollow", SettingCategory::Appearance, "Следование блика за курсором", "Подсветка под мышью", false, &AppSettings::cursorGlowFollow);
+        addInt("animStyle", SettingCategory::Appearance, "Характер анимаций", "0..2", false, 0, 2, &AppSettings::animStyle);
+        addBool("cursorGlowFollow", SettingCategory::Appearance, "Световой прожектор за курсором", "Подсветка стекла под мышью", false, &AppSettings::cursorGlowFollow);
         addBool("reducedMotion", SettingCategory::Accessibility, "Режим «Меньше движения»", "Отключает пружины и блик курсора", false, &AppSettings::reducedMotion);
 
         addInt("uiScalePct", SettingCategory::Layout, "Масштаб интерфейса (%)", "80..150%", false, 80, 150, &AppSettings::uiScalePct);
         addInt("fontSizePx", SettingCategory::Layout, "Размер шрифта (px)", "11..17 px", false, 11, 17, &AppSettings::fontSizePx);
-        addInt("fontBoldness", SettingCategory::Layout, "Начертание шрифта", "0 = Обычное, 1 = Полужирное", false, 0, 1, &AppSettings::fontBoldness);
-        addInt("uiDensity", SettingCategory::Layout, "Плотность макета", "0 = Компактно, 1 = Обычно, 2 = Просторно", false, 0, 2, &AppSettings::uiDensity);
+        addInt("fontBoldness", SettingCategory::Layout, "Начертание шрифта", "0..1", false, 0, 1, &AppSettings::fontBoldness);
+        addInt("uiDensity", SettingCategory::Layout, "Плотность макета", "0..2", false, 0, 2, &AppSettings::uiDensity);
 
-        addInt("sidebarPosition", SettingCategory::Layout, "Положение панели навигации", "0 = Слева, 1 = Сверху", false, 0, 1, &AppSettings::sidebarPosition);
+        addInt("sidebarPosition", SettingCategory::Layout, "Положение панели навигации", "0..1", false, 0, 1, &AppSettings::sidebarPosition);
         addInt("sidebarWidthPx", SettingCategory::Layout, "Ширина боковой панели (px)", "160..280 px", false, 160, 280, &AppSettings::sidebarWidthPx);
         addBool("sidebarShowLabels", SettingCategory::Layout, "Подписи у иконок меню", "Показывать названия вкладок", false, &AppSettings::sidebarShowLabels);
         addBool("rememberWindowSize", SettingCategory::Layout, "Запоминать размер окна", "Сохранять ширину и высоту", false, &AppSettings::rememberWindowSize);
@@ -313,9 +301,9 @@ private:
 
         addBool("highContrast", SettingCategory::Accessibility, "Высокий контраст", "Усиленная читаемость текста", false, &AppSettings::highContrast);
         addBool("reduceTransparency", SettingCategory::Accessibility, "Уменьшить прозрачность", "Плотный фон карточек", false, &AppSettings::reduceTransparency);
-        addInt("effectsQuality", SettingCategory::Accessibility, "Качество оптических эффектов", "0 = Низкое, 1 = Среднее, 2 = Высокое, 3 = Авто", false, 0, 3, &AppSettings::effectsQuality);
+        addInt("effectsQuality", SettingCategory::Accessibility, "Качество оптических эффектов", "0..3", false, 0, 3, &AppSettings::effectsQuality);
         addBool("disableBlurLowGpu", SettingCategory::Accessibility, "Отключить размытие (для слабых GPU)", "Без фильтра размытия подложки", false, &AppSettings::disableBlurLowGpu);
-        addInt("visualPreset", SettingCategory::Appearance, "Пресет оформления", "0 = Liquid Glass, 1 = Матовое стекло, 2 = Минимализм, 3 = Контраст, 4 = Экономный", false, 0, 4, &AppSettings::visualPreset);
+        addInt("visualPreset", SettingCategory::Appearance, "Пресет оформления", "0..4", false, 0, 4, &AppSettings::visualPreset);
 
         addString("lastPlaceInput", SettingCategory::General, "Последний Place ID / Ссылка", "Сохранённый адрес сервера", false, &AppSettings::lastPlaceInput);
         return reg;

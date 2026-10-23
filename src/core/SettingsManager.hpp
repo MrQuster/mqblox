@@ -1,6 +1,8 @@
 #pragma once
 #include "core/Types.hpp"
+#include <QJsonObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 namespace mqblox {
@@ -24,15 +26,25 @@ public:
 
     QString mqDir() const;
     QString accountsDir() const;
+    QString macobloxDataDir() const;
+    QString robloxAppDir() const;
+    QString clientAppSettingsPath() const;
+    QString darlingPrefixDir() const;
     QString soberBaseDir() const;
 
     bool exportPresetToFile(const QString &filePath) const;
     bool importPresetFromFile(const QString &filePath, QString *errMsg = nullptr);
 
+    QStringList listNamedProfiles() const;
+    bool saveNamedProfile(const QString &name, QString *errMsg = nullptr) const;
+    bool loadNamedProfile(const QString &name, QString *errMsg = nullptr);
+    bool deleteNamedProfile(const QString &name) const;
+
+    QJsonObject buildEffectiveFflags(QString *errMsg = nullptr) const;
     static QString parsePlaceUri(const QString &input);
 
 private:
-    bool writeSoberConfigJson(QString *errMsg) const;
+    bool writeClientAppSettingsJson(QString *errMsg) const;
 
     AppSettings m_settings;
     QVector<AccountProfile> m_accounts;

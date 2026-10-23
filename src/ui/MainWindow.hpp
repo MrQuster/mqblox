@@ -1,8 +1,6 @@
 #pragma once
-#include "core/SecretStore.hpp"
 #include "core/SettingsManager.hpp"
 #include "core/SoberController.hpp"
-#include "net/RobloxApiClient.hpp"
 #include "render/Ton618GlWidget.hpp"
 #include "ui/Widgets.hpp"
 #include <QCheckBox>
@@ -19,30 +17,9 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QVariantAnimation>
-#include <QWebEnginePage>
-#include <QWebEngineProfile>
-#include <QWebEngineView>
 #include <vector>
 
 namespace mqblox {
-
-class MqWebPage : public QWebEnginePage {
-    Q_OBJECT
-public:
-    std::function<void(const QString &)> onRobloxUri;
-    explicit MqWebPage(QWebEngineProfile *profile, QObject *parent = nullptr)
-        : QWebEnginePage(profile, parent) {}
-
-protected:
-    bool acceptNavigationRequest(const QUrl &url, NavigationType type, bool isMainFrame) override {
-        const QString scheme = url.scheme().toLower();
-        if (scheme == "roblox" || scheme == "roblox-player") {
-            if (onRobloxUri) onRobloxUri(url.toString());
-            return false;
-        }
-        return QWebEnginePage::acceptNavigationRequest(url, type, isMainFrame);
-    }
-};
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -72,10 +49,9 @@ private:
     void saveSettingsNow(bool manualClick = true);
     void enqueueToast(const QString &msg);
     void processNextToast();
-    void setupWebProfile(const QString &accId);
-    void onWebPageLoaded(bool ok);
     void refreshAccountsUi();
-    void syncActiveProfile(bool userInitiated);
+    void refreshEnvironmentAndSessionUi();
+    void refreshNamedProfilesCombo();
     void applyResolutionMode(ResolutionMode mode, bool initial);
     void applyGraphicsMasterPreset(int presetIdx);
     void toggleSidebarPinMode();
@@ -83,7 +59,7 @@ private:
     void switchTab(int idx);
     void runWatchdogTick();
     void refreshGitUpdateStatus();
-    void runMicrophoneDiagnostics();
+
     struct SearchEntry {
         int tabIndex = 0;
         QFrame *card = nullptr;
@@ -93,11 +69,14 @@ private:
     QTimer *m_searchDebounce = nullptr;
     QString m_lastAppliedQss;
     void buildSearchIndex();
+    void filterSettingsBySearch(const QString &query);
+    void resetCurrentCategoryToDefaults();
+    void applyLayoutAndTypographyLive();
+    void resetAppearanceToDefault();
 
     QString m_launchUri;
     SettingsManager m_settingsMgr;
     SoberController *m_soberCtrl = nullptr;
-    RobloxApiClient *m_apiClient = nullptr;
 
     Ton618GlWidget *m_rootCosmos = nullptr;
     HoverSidebar *m_sidebar = nullptr;
@@ -117,42 +96,44 @@ private:
     QLabel *m_lblAutosync = nullptr;
     QStackedWidget *m_pages = nullptr;
 
+    // Home: Launch, Session, Wizard & Diagnostics
     QLineEdit *m_inpPlace = nullptr;
-    QLabel *m_lblSkinDisp = nullptr;
-    QLabel *m_lblSkinUser = nullptr;
-    QLabel *m_lblRobux = nullptr;
-    QWebEngineView *m_webView = nullptr;
-    QWebEngineProfile *m_webProfile = nullptr;
-    MqWebPage *m_webPage = nullptr;
+    QLabel *m_lblSessionStatus = nullptr;
+    AnimButton *m_btnLogout = nullptr;
+    QLabel *m_lblEnvSummary = nullptr;
+    QProgressBar *m_wizardProgressBar = nullptr;
+    QLabel *m_lblWizardStatus = nullptr;
+    AnimButton *m_btnRunWizard = nullptr;
+    QTextEdit *m_homeDiagView = nullptr;
 
+    // Accounts & Named Profiles
     QVBoxLayout *m_accountsListLayout = nullptr;
+    DarkComboBox *m_comboNamedProfiles = nullptr;
+    QLineEdit *m_inpNewProfileName = nullptr;
+
+    // System & MacOBlox Runtime
     QLabel *m_hwBannerLbl = nullptr;
-    DarkComboBox *m_comboGpuVendor = nullptr;
-    DarkComboBox *m_comboCpuVendor = nullptr;
-    DarkComboBox *m_comboAudioOut = nullptr;
-    DarkComboBox *m_comboAudioIn = nullptr;
-    DarkComboBox *m_comboWinDrv = nullptr;
+    ResettableSlider *m_sldMouseSens = nullptr;
+    QCheckBox *m_chkHideMenuBar = nullptr;
+    DarkComboBox *m_comboDnsProvider = nullptr;
+    QLineEdit *m_inpDnsCustom = nullptr;
+    QCheckBox *m_chkFpsLog = nullptr;
+    QCheckBox *m_chkTraceUdp = nullptr;
+    QCheckBox *m_chkTraceLock = nullptr;
+    QCheckBox *m_chkTraceGl = nullptr;
+    QCheckBox *m_chkDiagSignals = nullptr;
 
     QCheckBox *m_chkReturnMq = nullptr;
-    QCheckBox *m_chkPauseWeb = nullptr;
     QCheckBox *m_chkAnimBg = nullptr;
     QCheckBox *m_chkCloseToTray = nullptr;
-    QCheckBox *m_chkGlThread = nullptr;
-    QCheckBox *m_chkAsyncShaders = nullptr;
     QCheckBox *m_chkVsyncOff = nullptr;
-    QCheckBox *m_chkPwBuffer = nullptr;
-    QCheckBox *m_chkMallocTrim = nullptr;
     QCheckBox *m_chkAutoClean = nullptr;
     QCheckBox *m_chkMemFflags = nullptr;
     QCheckBox *m_chkNoTelemetry = nullptr;
-    QCheckBox *m_chkGamemode = nullptr;
-    QCheckBox *m_chkAutoLaunch = nullptr;
     QCheckBox *m_chkAutoReconnect = nullptr;
-    QCheckBox *m_chkHideSober = nullptr;
 
+    // Graphics & FastFlags
     QLabel *m_lblPresetDesc = nullptr;
-    DarkComboBox *m_comboApi = nullptr;
-    DarkComboBox *m_comboOptMode = nullptr;
     DarkComboBox *m_comboLighting = nullptr;
     QSpinBox *m_spinFps = nullptr;
     QCheckBox *m_chkUnlimFps = nullptr;
@@ -165,36 +146,22 @@ private:
     QCheckBox *m_chkNoPostfx = nullptr;
     QCheckBox *m_chkLowMeshes = nullptr;
     QCheckBox *m_chkGreySky = nullptr;
-    QCheckBox *m_chkBringOof = nullptr;
-    QCheckBox *m_chkRpc = nullptr;
-    QCheckBox *m_chkRegion = nullptr;
-    QCheckBox *m_chkGamepad = nullptr;
-    QCheckBox *m_chkHidpi = nullptr;
 
     QTextEdit *m_fflagsEditor = nullptr;
     QLabel *m_lblFflagsValidation = nullptr;
 
+    // Tweaks & Camera
     DarkComboBox *m_comboCamZoom = nullptr;
     DarkComboBox *m_comboNetOpt = nullptr;
     QCheckBox *m_chkHudFps = nullptr;
     QCheckBox *m_chkClearFog = nullptr;
     QSpinBox *m_spinMaxZoom = nullptr;
     QCheckBox *m_chkInfZoom = nullptr;
-    QCheckBox *m_chkNoclipCam = nullptr;
     QCheckBox *m_chkFullBright = nullptr;
     QCheckBox *m_chkHitboxes = nullptr;
-    QCheckBox *m_chkWallhop = nullptr;
+
+    // Visual & Layout Controls (HyperOS 4 Liquid Glass)
     QLineEdit *m_inpSearchSettings = nullptr;
-    DarkComboBox *m_comboBlurStrength = nullptr;
-    QSpinBox *m_spinGlassOpacity = nullptr;
-    QSpinBox *m_spinBorderBright = nullptr;
-    QCheckBox *m_chkChameleon = nullptr;
-    QCheckBox *m_chkReducedMotion = nullptr;
-    DarkComboBox *m_comboVideoFps = nullptr;
-    DarkComboBox *m_comboAccent = nullptr;
-    void filterSettingsBySearch(const QString &query);
-    void resetCurrentCategoryToDefaults();
-    // Stage 3 Visual & Layout Controls (v34.5)
     DarkComboBox *m_comboVisualPreset = nullptr;
     ResettableSlider *m_sldBlur = nullptr;
     ResettableSlider *m_sldOpacity = nullptr;
@@ -207,7 +174,9 @@ private:
     DarkComboBox *m_comboGlassStyle = nullptr;
 
     DarkComboBox *m_comboThemeMode = nullptr;
+    DarkComboBox *m_comboAccent = nullptr;
     QLineEdit *m_inpCustomHex = nullptr;
+    QCheckBox *m_chkChameleon = nullptr;
     ResettableSlider *m_sldChamSpeed = nullptr;
     ResettableSlider *m_sldChamStrength = nullptr;
     DarkComboBox *m_comboBorderSource = nullptr;
@@ -215,12 +184,14 @@ private:
 
     DarkComboBox *m_comboBackdropType = nullptr;
     ResettableSlider *m_sldBackdropDim = nullptr;
+    DarkComboBox *m_comboVideoFps = nullptr;
     QCheckBox *m_chkPauseFocusLoss = nullptr;
 
     QCheckBox *m_chkAnimEnabled = nullptr;
     ResettableSlider *m_sldAnimSpeed = nullptr;
     DarkComboBox *m_comboAnimStyle = nullptr;
     QCheckBox *m_chkCursorGlow = nullptr;
+    QCheckBox *m_chkReducedMotion = nullptr;
 
     ResettableSlider *m_sldUiScale = nullptr;
     ResettableSlider *m_sldFontSize = nullptr;
@@ -239,8 +210,6 @@ private:
     DarkComboBox *m_comboEffectsQuality = nullptr;
     QCheckBox *m_chkDisableBlurGpu = nullptr;
 
-    void applyLayoutAndTypographyLive();
-    void resetAppearanceToDefault();
     QTextEdit *m_logView = nullptr;
 
     QLabel *m_lblGitVersionInfo = nullptr;
@@ -258,7 +227,6 @@ private:
     bool m_sidebarExpanded = true;
     bool m_pendingHover = true;
     bool m_forceQuit = false;
-    bool m_syncCookieGuard = false;
 };
 
 } // namespace mqblox
