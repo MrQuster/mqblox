@@ -413,9 +413,11 @@ void Ton618GlWidget::decoderLoop() {
     }
     if (path.isEmpty() || !QFile::exists(path)) return;
 
-    QString cmd = QString("ffmpeg -loglevel quiet -re -threads 1 -stream_loop -1 -i \"%1\" "
+    QString escapedPath = path;
+    escapedPath.replace("'", "'\\''");
+    QString cmd = QString("ffmpeg -loglevel quiet -re -threads 1 -stream_loop -1 -i '%1' "
                           "-vf scale=%2:%3:flags=fast_bilinear -r 24 -f rawvideo -pix_fmt rgb32 -")
-                      .arg(path)
+                      .arg(escapedPath)
                       .arg(STREAM_W)
                       .arg(STREAM_H);
 
@@ -526,7 +528,9 @@ void Ton618GlWidget::loadCustomVideoFile(const QString &filePath) {
         return;
     }
 
-    QString dest = QDir::homePath() + "/.local/share/mqblox/videos/custom_loop.mp4";
+    const QString destDir = QDir::homePath() + "/.local/share/mqblox/videos";
+    QDir().mkpath(destDir);
+    QString dest = destDir + "/custom_loop.mp4";
     auto *conv = new QProcess(this);
     connect(conv, &QProcess::finished, this, [this, conv, dest](int code, QProcess::ExitStatus) {
         conv->deleteLater();
@@ -582,13 +586,23 @@ void Ton618GlWidget::setInGamePaused(bool paused) {
 void Ton618GlWidget::setWebTabActive(bool) {}
 
 void Ton618GlWidget::loadBestFallbackImage() {
-    QString base = QDir::homePath() + "/.local/share/mqblox";
-    for (const QString &candidate : {
-             base + "/pexels_39811262_uhd.png",
-             base + "/ton618_4k_master_v22.png",
-             base + "/ton618_4k_master_v21.png"}) {
-        if (QFileInfo(candidate).size() > 50000 && m_fallbackImg.load(candidate)) {
-            return;
+    const QString homeBase = QDir::homePath() + "/.local/share/mqblox";
+    const QString appBase = QCoreApplication::applicationDirPath() + "/../share/mqblox";
+    const QStringList baseDirs = {
+        homeBase,
+        appBase,
+        "/usr/local/share/mqblox",
+        "/usr/share/mqblox"
+    };
+    for (const QString &base : baseDirs) {
+        for (const char *imgName : {
+                 "pexels_39811262_uhd.png",
+                 "ton618_4k_master_v22.png",
+                 "ton618_4k_master_v21.png"}) {
+            const QString candidate = base + "/" + imgName;
+            if (QFileInfo(candidate).size() > 50000 && m_fallbackImg.load(candidate)) {
+                return;
+            }
         }
     }
     m_fallbackImg = QImage(STREAM_W, STREAM_H, QImage::Format_RGB32);

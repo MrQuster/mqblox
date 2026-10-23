@@ -717,31 +717,25 @@ public:
         tickTimer = new QTimer(this);
         connect(tickTimer, &QTimer::timeout, this, [this]() {
             bool anyActive = false;
-            const auto surfKeys = surfaces.keys();
-            for (QWidget *k : surfKeys) {
-                auto it = surfaces.find(k);
-                if (it != surfaces.end()) {
-                    Ton618GlWidget *bg = findBackdropTon618(k);
-                    VisualParams vp = bg ? bg->visuals() : VisualParams{};
-                    bool stepped = it.value().hover.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);
-                    if (stepped || it.value().mouseDirty) {
-                        it.value().mouseDirty = false;
-                        if (stepped) anyActive = true;
-                        k->update();
-                    }
+            for (auto it = surfaces.begin(); it != surfaces.end(); ++it) {
+                QWidget *k = it.key();
+                Ton618GlWidget *bg = findBackdropTon618(k);
+                VisualParams vp = bg ? bg->visuals() : VisualParams{};
+                bool stepped = it.value().hover.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);
+                if (stepped || it.value().mouseDirty) {
+                    it.value().mouseDirty = false;
+                    if (stepped) anyActive = true;
+                    k->update();
                 }
             }
-            const auto swKeys = switches.keys();
-            for (QCheckBox *k : swKeys) {
-                auto it = switches.find(k);
-                if (it != switches.end()) {
-                    Ton618GlWidget *bg = findBackdropTon618(k);
-                    VisualParams vp = bg ? bg->visuals() : VisualParams{};
-                    bool s1 = it.value().pos.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);
-                    bool s2 = it.value().pressStretch.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);
-                    bool s3 = it.value().hover.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);
-                    if (s1 || s2 || s3) { anyActive = true; k->update(); }
-                }
+            for (auto it = switches.begin(); it != switches.end(); ++it) {
+                QCheckBox *k = it.key();
+                Ton618GlWidget *bg = findBackdropTon618(k);
+                VisualParams vp = bg ? bg->visuals() : VisualParams{};
+                bool s1 = it.value().pos.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);
+                bool s2 = it.value().pressStretch.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);
+                bool s3 = it.value().hover.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);
+                if (s1 || s2 || s3) { anyActive = true; k->update(); }
             }
             if (!anyActive) tickTimer->stop();
         });
@@ -775,7 +769,7 @@ protected:
         if (isGlassContainer(watched, &frame)) {
             if (event->type() == QEvent::Show || event->type() == QEvent::Polish) {
                 frame->setMouseTracking(true);
-                connect(frame, &QObject::destroyed, this, [this, frame]() { surfaces.remove(frame); });
+                connect(frame, &QObject::destroyed, this, [this, frame]() { surfaces.remove(frame); }, Qt::UniqueConnection);
             } else if (event->type() == QEvent::Enter) {
                 auto &st = surfaces[frame];
                 st.hasCursor = true; st.hover.target = 1.0;
@@ -841,7 +835,7 @@ protected:
             }
             if (event->type() == QEvent::Show || event->type() == QEvent::Polish) {
                 w->setMouseTracking(true);
-                connect(w, &QObject::destroyed, this, [this, w]() { surfaces.remove(w); });
+                connect(w, &QObject::destroyed, this, [this, w]() { surfaces.remove(w); }, Qt::UniqueConnection);
             } else if (event->type() == QEvent::Enter) {
                 surfaces[w].hasCursor = true; surfaces[w].hover.target = 1.0;
                 if (!tickTimer->isActive()) tickTimer->start(16);
@@ -930,7 +924,7 @@ protected:
                     s.pos.velocity += c ? 2.5 : -2.5;
                     if (!tickTimer->isActive()) tickTimer->start(16);
                 });
-                connect(chk, &QObject::destroyed, this, [this, chk]() { switches.remove(chk); });
+                connect(chk, &QObject::destroyed, this, [this, chk]() { switches.remove(chk); }, Qt::UniqueConnection);
             }
 
             if (event->type() == QEvent::Enter) {

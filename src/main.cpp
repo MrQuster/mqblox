@@ -7,6 +7,7 @@
 #include <QLoggingCategory>
 #include <QPalette>
 #include <sys/resource.h>
+#include <unistd.h>
 
 static void maximizeFileDescriptorLimit() {
     struct rlimit rl;
@@ -18,7 +19,9 @@ static void maximizeFileDescriptorLimit() {
     }
 }
 
-static const QString IPC_SERVER_NAME = "mqblox_single_instance_ipc_v16";
+static QString ipcServerName() {
+    return QString("mqblox_ipc_%1").arg(::getuid());
+}
 
 static void applyGlobalDarkPalette(QApplication &app) {
     app.setStyle("Fusion");
@@ -50,8 +53,9 @@ int main(int argc, char *argv[]) {
     app.setWindowIcon(QIcon::fromTheme("mqblox", QIcon(":/mqblox.svg")));
     app.setQuitOnLastWindowClosed(false);
 
+    const QString serverName = ipcServerName();
     QLocalSocket probe;
-    probe.connectToServer(IPC_SERVER_NAME);
+    probe.connectToServer(serverName);
     if (probe.waitForConnected(150)) {
         probe.write("SHOW");
         probe.waitForBytesWritten(150);
@@ -59,9 +63,10 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    QLocalServer::removeServer(IPC_SERVER_NAME);
+    QLocalServer::removeServer(serverName);
     QLocalServer ipcServer;
-    ipcServer.listen(IPC_SERVER_NAME);
+    ipcServer.setSocketOptions(QLocalServer::UserAccessOption);
+    ipcServer.listen(serverName);
 
     applyGlobalDarkPalette(app);
     mqblox::installLiquidGlassEngine(&app);

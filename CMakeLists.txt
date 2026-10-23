@@ -66,8 +66,14 @@ target_link_libraries(mqblox PRIVATE
     OpenGL::GL
 )
 
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
+if(ipo_supported)
+    set_property(TARGET mqblox mqblox_core PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+endif()
+
 foreach(tgt mqblox_core mqblox)
-    target_compile_options(${tgt} PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(${tgt} PRIVATE -Wall -Wextra -Wpedantic -pipe)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(${tgt} PRIVATE
             $<$<CONFIG:Release>:-O3 -fdata-sections -ffunction-sections>

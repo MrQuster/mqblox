@@ -284,7 +284,7 @@ void MainWindow::initTrayAndShortcuts() {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
         m_trayIcon->setToolTip(tr("MqBlox × MacOBlox v36.0 — HyperOS 4 Liquid Glass"));
 
-        auto *menu = new QMenu(nullptr);
+        auto *menu = new QMenu(this);
         menu->setStyleSheet(
             "QMenu { background-color: #070A14; color: #F8FAFC; border: 1px solid #38BDF8; border-radius: 10px; padding: 6px; font-weight: 700; }"
             "QMenu::item { padding: 7px 18px; border-radius: 6px; }"
@@ -1421,16 +1421,29 @@ void MainWindow::refreshGitUpdateStatus() {
     if (!m_lblGitVersionInfo || !m_updateLogView) return;
     m_updateProgressBar->setRange(0, 0);
     m_updateProgressBar->setFormat(tr("⏳ Чтение локальной истории Git..."));
+
+    QString workDir = QCoreApplication::applicationDirPath();
+    if (!QDir(workDir + "/.git").exists() && !QDir(workDir + "/../.git").exists()) {
+        const QString cur = QDir::currentPath();
+        if (QDir(cur + "/.git").exists()) {
+            workDir = cur;
+        }
+    }
+
     auto *proc = new QProcess(this);
-    proc->setWorkingDirectory(QCoreApplication::applicationDirPath());
-    connect(proc, &QProcess::finished, this, [this, proc](int, QProcess::ExitStatus) {
+    proc->setWorkingDirectory(workDir);
+    connect(proc, &QProcess::finished, this, [this, proc](int code, QProcess::ExitStatus) {
         QString out = QString::fromUtf8(proc->readAllStandardOutput()).trimmed();
         proc->deleteLater();
         m_updateProgressBar->setRange(0, 100);
         m_updateProgressBar->setValue(100);
         m_lblGitVersionInfo->setText(tr("🟢 <b>MqBlox × MacOBlox v36.0 (Schema v36)</b>"));
         m_updateProgressBar->setFormat(tr("✓ Актуальная сборка"));
-        if (!out.isEmpty()) m_updateLogView->setPlainText(out);
+        if (code == 0 && !out.isEmpty()) {
+            m_updateLogView->setPlainText(out);
+        } else {
+            m_updateLogView->setPlainText(tr("✦ Релизная сборка MqBlox v36.0 установлена и актуальна.\n✦ Внутренний рантайм Darling & шимы libMacOBloxShims готовы."));
+        }
     });
     proc->start("git", {"log", "-n", "8", "--pretty=format:✦ [%h] %s (%cr)"});
 }
@@ -1975,14 +1988,21 @@ void MainWindow::switchTab(int idx) {
     if (idx == 5) refreshGitUpdateStatus();
     if (QWidget *w = m_pages->currentWidget()) {
         if (idx != 0) {
+            if (w->graphicsEffect()) {
+                w->setGraphicsEffect(nullptr);
+            }
             auto *eff = new QGraphicsOpacityEffect(w);
             w->setGraphicsEffect(eff);
-            auto *anim = new QPropertyAnimation(eff, "opacity", w);
+            auto *anim = new QPropertyAnimation(eff, "opacity", eff);
             anim->setDuration(220);
             anim->setStartValue(0.15);
             anim->setEndValue(1.0);
             anim->setEasingCurve(QEasingCurve::OutCubic);
-            connect(anim, &QPropertyAnimation::finished, w, [w]() { w->setGraphicsEffect(nullptr); });
+            connect(anim, &QPropertyAnimation::finished, w, [w, eff]() {
+                if (w->graphicsEffect() == eff) {
+                    w->setGraphicsEffect(nullptr);
+                }
+            });
             anim->start(QAbstractAnimation::DeleteWhenStopped);
         }
     }

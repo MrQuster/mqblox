@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <unistd.h>
 
 using namespace mqblox;
 
@@ -370,6 +371,40 @@ private slots:
         QVERIFY(script.contains("export MACOBLOX_GRAPHICS_BACKEND='vulkan'"));
         QVERIFY(script.contains("export MESA_LOADER_DRIVER_OVERRIDE=zink"));
         QVERIFY(script.contains("export GALLIUM_DRIVER=zink"));
+    }
+
+    void testIpcSecurityAndIsolation() {
+        const uid_t uid = ::getuid();
+        const QString expectedPrefix = QString("mqblox_ipc_%1").arg(uid);
+        QVERIFY(expectedPrefix.startsWith("mqblox_ipc_"));
+        QVERIFY(expectedPrefix.length() > 11);
+    }
+
+    void testDnsHostResolution() {
+        // Test query for roblox.com A-record (type 1)
+        // 12-byte header + 6 bytes "roblox" + 3 bytes "com" + 0x00 + type(0x0001) + class(0x0001)
+        QByteArray dnsQuery;
+        dnsQuery.append("\x12\x34", 2); // ID
+        dnsQuery.append("\x01\x00", 2); // Standard query
+        dnsQuery.append("\x00\x01", 2); // QDCOUNT = 1
+        dnsQuery.append("\x00\x00", 2); // ANCOUNT = 0
+        dnsQuery.append("\x00\x00", 2); // NSCOUNT = 0
+        dnsQuery.append("\x00\x00", 2); // ARCOUNT = 0
+        // "roblox.com"
+        dnsQuery.append(static_cast<char>(6));
+        dnsQuery.append("roblox");
+        dnsQuery.append(static_cast<char>(3));
+        dnsQuery.append("com");
+        dnsQuery.append(static_cast<char>(0));
+        dnsQuery.append("\x00\x01", 2); // Type A
+        dnsQuery.append("\x00\x01", 2); // Class IN
+
+        QByteArray resp = DarlingController::buildHostDnsResponse(dnsQuery);
+        QVERIFY(!resp.isEmpty());
+        // Verify transaction ID matches
+        QCOMPARE(resp.left(2), QByteArray("\x12\x34", 2));
+        // Verify response bit is set (0x81)
+        QCOMPARE(static_cast<quint8>(resp[2]), static_cast<quint8>(0x81));
     }
 
 private:

@@ -583,22 +583,22 @@ void DarlingController::startDnsForwarder() {
                 QSslSocket tls;
                 tls.setPeerVerifyMode(QSslSocket::VerifyNone);
                 tls.connectToHostEncrypted(upstream, 853);
-                if (tls.waitForEncrypted(800)) {
+                if (tls.waitForEncrypted(250)) {
                     QByteArray framed;
                     const quint16 qlen = static_cast<quint16>(query.size());
                     framed.append(static_cast<char>((qlen >> 8) & 0xFF));
                     framed.append(static_cast<char>(qlen & 0xFF));
                     framed.append(query);
                     tls.write(framed);
-                    if (tls.waitForBytesWritten(800)) {
+                    if (tls.waitForBytesWritten(250)) {
                         QByteArray respBuf;
-                        while (respBuf.size() < 2 && tls.waitForReadyRead(800)) {
+                        while (respBuf.size() < 2 && tls.waitForReadyRead(250)) {
                             respBuf.append(tls.readAll());
                         }
                         if (respBuf.size() >= 2) {
                             const int rlen = (static_cast<unsigned char>(respBuf[0]) << 8) |
                                              static_cast<unsigned char>(respBuf[1]);
-                            while (respBuf.size() < 2 + rlen && tls.waitForReadyRead(800)) {
+                            while (respBuf.size() < 2 + rlen && tls.waitForReadyRead(250)) {
                                 respBuf.append(tls.readAll());
                             }
                             if (respBuf.size() >= 2 + rlen && udpGuard) {
@@ -1081,6 +1081,12 @@ void DarlingController::stepDownloadOrUpdateRoblox() {
 
                         QDir().rename(extractDir + "/RobloxPlayer.app", appDir);
                         QDir(extractDir).removeRecursively();
+
+                        const QString robloxExec = appDir + "/Contents/MacOS/RobloxPlayer";
+                        QFile::setPermissions(robloxExec,
+                            QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner |
+                            QFileDevice::ReadGroup | QFileDevice::ExeGroup |
+                            QFileDevice::ReadOther | QFileDevice::ExeOther);
 
                         QMetaObject::invokeMethod(this, [this, version]() {
                             m_settingsMgr->saveAll();
