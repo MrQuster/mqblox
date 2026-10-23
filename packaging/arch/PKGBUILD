@@ -1,0 +1,48 @@
+# Maintainer: MrQuster <https://github.com/MrQuster>
+# Upstream MacOBlox Author: Narezany (narezy) <https://github.com/narezy/MacOBlox>
+pkgname=mqblox
+pkgver=36.0.0
+pkgrel=1
+pkgdesc="HyperOS 4 Liquid Glass Qt6 launcher for the macOS Roblox client on Linux via Darling (MacOBlox fork)"
+arch=('x86_64')
+url="https://github.com/MrQuster/mqblox"
+license=('MIT')
+depends=(
+  'qt6-base'
+  'qt6-svg'
+  'qt6-wayland'
+  'clang'
+  'lld'
+  'unzip'
+  'hicolor-icon-theme'
+)
+makedepends=(
+  'cmake'
+  'ninja'
+)
+optdepends=(
+  'darling: macOS translation layer required to run RobloxPlayer.app'
+)
+source=()
+sha256sums=()
+
+build() {
+  local src_root="${startdir}"
+  if [[ ! -f "${src_root}/CMakeLists.txt" && -f "${startdir}/../..//CMakeLists.txt" ]]; then
+    src_root="$(cd "${startdir}/../.." && pwd -P)"
+  fi
+  cmake -S "${src_root}" -B "${srcdir}/build" \
+    -GNinja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -Wno-dev
+  cmake --build "${srcdir}/build"
+}
+
+check() {
+  QT_QPA_PLATFORM=offscreen ctest --test-dir "${srcdir}/build" --output-on-failure
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install "${srcdir}/build"
+}

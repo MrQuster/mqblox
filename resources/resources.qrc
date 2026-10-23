@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
         <file>style_ton618.qss</file>
+        <file>mqblox.svg</file>
     </qresource>
 </RCC>

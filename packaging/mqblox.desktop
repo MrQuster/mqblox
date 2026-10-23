@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=MqBlox
+GenericName=Roblox Launcher (MacOBlox Darling)
+GenericName[ru]=Лаунчер Roblox (MacOBlox Darling)
+Comment=MqBlox — HyperOS 4 Liquid Glass Launcher for Roblox (MacOBlox Darling backend)
+Comment[ru]=MqBlox — лаунчер HyperOS 4 Liquid Glass для клиента Roblox (бэкенд MacOBlox Darling)
+Exec=mqblox %u
+Icon=mqblox
+Terminal=false
+Categories=Game;
+Keywords=roblox;macoblox;darling;mqblox;
+StartupWMClass=RobloxPlayer
+StartupNotify=true
+MimeType=x-scheme-handler/roblox;x-scheme-handler/roblox-player;
