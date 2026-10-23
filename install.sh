@@ -228,19 +228,29 @@ DARLING_EOF
 fi
 
 printf '[4/4] Building Darwin Mach-O shim (libMacOBloxShims.dylib) if Darling sysroot is present...\n'
-if "$PREFIX/share/mqblox/shims/build_debug_shim.sh" >/dev/null 2>&1; then
-  mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/macoblox"
-  cp -f "$PREFIX/share/mqblox/shims/build/libMacOBloxShims.dylib" \
-    "${XDG_DATA_HOME:-$HOME/.local/share}/macoblox/libMacOBloxShims.dylib"
-  if [[ -d "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox" ]]; then
-    mkdir -p "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox/build"
-    cp -f "$PREFIX/share/mqblox/shims/build/libMacOBloxShims.dylib" \
-      "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox/libMacOBloxShims.dylib"
-    cp -f "$PREFIX/share/mqblox/shims/build/libMacOBloxShims.dylib" \
-      "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox/build/libMacOBloxShims.dylib"
+SHIM_BUILDER=""
+if [[ -x "$WORK_SRC/shims/build_debug_shim.sh" ]]; then
+  SHIM_BUILDER="$WORK_SRC/shims/build_debug_shim.sh"
+elif [[ -x "$PREFIX/share/mqblox/shims/build_debug_shim.sh" ]]; then
+  SHIM_BUILDER="$PREFIX/share/mqblox/shims/build_debug_shim.sh"
+fi
+
+if [[ -n "$SHIM_BUILDER" ]] && "$SHIM_BUILDER" >/dev/null 2>&1; then
+  shim_out="$(dirname "$SHIM_BUILDER")/build/libMacOBloxShims.dylib"
+  if [[ -f "$shim_out" ]]; then
+    mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/macoblox"
+    cp -f "$shim_out" \
+      "${XDG_DATA_HOME:-$HOME/.local/share}/macoblox/libMacOBloxShims.dylib"
+    if [[ -d "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox" ]]; then
+      mkdir -p "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox/build"
+      cp -f "$shim_out" \
+        "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox/libMacOBloxShims.dylib"
+      cp -f "$shim_out" \
+        "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox/build/libMacOBloxShims.dylib"
+    fi
+    printf '      Built and installed libMacOBloxShims.dylib -> %s\n' \
+      "${XDG_DATA_HOME:-$HOME/.local/share}/macoblox/libMacOBloxShims.dylib"
   fi
-  printf '      Built and installed libMacOBloxShims.dylib -> %s\n' \
-    "${XDG_DATA_HOME:-$HOME/.local/share}/macoblox/libMacOBloxShims.dylib"
 else
   printf '      (Skipped pre-building dylib: Darling sysroot not yet installed; First-Run Wizard will build it on demand)\n'
 fi
