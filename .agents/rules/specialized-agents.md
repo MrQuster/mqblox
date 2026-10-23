@@ -7,17 +7,17 @@ description: Guidelines and roles for specialized review, security, Darling, QA,
 This workspace utilizes 6 specialized agents to ensure code quality, platform isolation, macOS runtime translation, stability, and desktop compliance.
 
 ## Agent Specifications & Registration
-System prompts and full capability specifications are stored in `agents/<agent-name>.md`:
-- `code-reviewer`: `agents/code-reviewer.md`
-- `security-auditor`: `agents/security-auditor.md`
-- `darling-specialist`: `agents/darling-specialist.md`
-- `qa-tester`: `agents/qa-tester.md`
-- `ui-ux-reviewer`: `agents/ui-ux-reviewer.md`
-- `system-packager`: `agents/system-packager.md`
+System prompts and full capability specifications are stored in `agents/<agent-name>.md` and `agents/subagents/<subagent-name>.md`:
+- `code-reviewer`: `agents/code-reviewer.md` (Sub-agents: `cpp-refactorer`, `memory-leak-tracer`)
+- `security-auditor`: `agents/security-auditor.md` (Sub-agents: `ipc-guard`, `sandbox-sanitizer`)
+- `darling-specialist`: `agents/darling-specialist.md` (Sub-agents: `mach-shim-developer`, `graphics-bridge`)
+- `qa-tester`: `agents/qa-tester.md` (Sub-agents: `test-runner`, `sanitizer-auditor`)
+- `ui-ux-reviewer`: `agents/ui-ux-reviewer.md` (Sub-agents: `qss-styler`, `eventloop-auditor`)
+- `system-packager`: `agents/system-packager.md` (Sub-agents: `distro-packager`, `desktop-integrator`)
 
 Across restarts and new Antigravity sessions:
-1. Verify if the agent is defined. If not, define it via `define_subagent` using the prompt in `agents/<agent-name>.md`.
-2. Invoke specialized subagents via `invoke_subagent` for dedicated domain tasks.
+1. Verify if the agents are defined. If not, define them via `define_subagent` using the prompt specifications in `agents/` and `agents/subagents/`.
+2. Invoke specialized agents via `invoke_subagent` for dedicated domain tasks.
 
 ## Agent Perspectives & Requirements
 

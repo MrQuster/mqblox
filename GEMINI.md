@@ -1,17 +1,29 @@
 # MqBlox Project Guidelines & Autonomous Specialized Agents
 
 ## Automatic Subagents Initialization & Persistence
-On every session startup, Antigravity has 6 specialized subagents defined and ready for development, verification, security, and packaging. Their full system prompts and definitions are located in `agents/<agent-name>.md`:
+On every session startup, Antigravity has 6 specialized lead agents and 12 granular sub-agents defined and ready for development, verification, security, and packaging. Their full system prompts and definitions are located in `agents/<agent-name>.md` and `agents/subagents/<subagent-name>.md`:
 
 1. `code-reviewer` (`agents/code-reviewer.md`): Audits modern C++20 and Qt6 code quality, RAII, memory management, thread safety, and architecture.
+   - `cpp-refactorer` (`agents/subagents/cpp-refactorer.md`): C++20 modernization and RAII refactoring.
+   - `memory-leak-tracer` (`agents/subagents/memory-leak-tracer.md`): QObject hierarchy and allocation lifecycles.
 2. `security-auditor` (`agents/security-auditor.md`): Audits IPC, socket permissions, path traversal, sandbox boundaries, and process execution security.
+   - `ipc-guard` (`agents/subagents/ipc-guard.md`): UNIX domain sockets, `QLocalServer` permissions (`0600`), credential isolation.
+   - `sandbox-sanitizer` (`agents/subagents/sandbox-sanitizer.md`): Path traversal (`../`) and `QProcess` shell sanitization.
 3. `darling-specialist` (`agents/darling-specialist.md`): Specialist in Darling macOS runtime compatibility, Mach subsystems, dynamic linking, shims, OpenGL rendering, and Roblox client behavior.
+   - `mach-shim-developer` (`agents/subagents/mach-shim-developer.md`): Mach-O C/Obj-C shims (`shims/`), dynamic linking injection.
+   - `graphics-bridge` (`agents/subagents/graphics-bridge.md`): OpenGL 4.1 Core Profile (`gl_profile.c`), Vulkan/Zink, Wayland presentation.
 4. `qa-tester` (`agents/qa-tester.md`): Specialist in automated building, unit tests (`tst_mqblox`), regression suites, and compilation verification.
+   - `test-runner` (`agents/subagents/test-runner.md`): Automated `-Wall -Wextra` CMake builds and `ctest` runs.
+   - `sanitizer-auditor` (`agents/subagents/sanitizer-auditor.md`): AddressSanitizer and UndefinedBehaviorSanitizer analysis.
 5. `ui-ux-reviewer` (`agents/ui-ux-reviewer.md`): Specialist in Qt6 GUI, Dark Theme, accessibility, UX settings, and event-loop responsiveness.
+   - `qss-styler` (`agents/subagents/qss-styler.md`): HyperOS Liquid Glass QSS dark theming, visual ergonomics.
+   - `eventloop-auditor` (`agents/subagents/eventloop-auditor.md`): GUI main thread responsiveness, non-blocking asynchronous jobs.
 6. `system-packager` (`agents/system-packager.md`): Specialist in Linux desktop integration, XDG compliance, Flatpak, PKGBUILD, and installation scripts.
+   - `distro-packager` (`agents/subagents/distro-packager.md`): `PKGBUILD`, Flatpak, distribution dependencies.
+   - `desktop-integrator` (`agents/subagents/desktop-integrator.md`): XDG directory compliance, desktop entries, `roblox-player://` MIME handlers.
 
 Whenever working in a new Antigravity session or after restarts:
-- Read `agents/<agent-name>.md` and register each agent using `define_subagent` if not already defined in the active session.
+- Read `agents/<agent-name>.md` and `agents/subagents/<subagent-name>.md` and register each agent using `define_subagent` if not already defined in the active session.
 - Delegate tasks to the appropriate specialized subagent using `invoke_subagent`.
 - Cross-agent collaboration and guidelines are enforced via `.agents/rules/specialized-agents.md` and `AGENTS.md`.
 
