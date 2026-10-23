@@ -769,7 +769,10 @@ protected:
         if (isGlassContainer(watched, &frame)) {
             if (event->type() == QEvent::Show || event->type() == QEvent::Polish) {
                 frame->setMouseTracking(true);
-                connect(frame, &QObject::destroyed, this, [this, frame]() { surfaces.remove(frame); }, Qt::UniqueConnection);
+                if (!surfaces.contains(frame)) {
+                    surfaces[frame];
+                    connect(frame, &QObject::destroyed, this, [this, frame]() { surfaces.remove(frame); });
+                }
             } else if (event->type() == QEvent::Enter) {
                 auto &st = surfaces[frame];
                 st.hasCursor = true; st.hover.target = 1.0;
@@ -835,7 +838,10 @@ protected:
             }
             if (event->type() == QEvent::Show || event->type() == QEvent::Polish) {
                 w->setMouseTracking(true);
-                connect(w, &QObject::destroyed, this, [this, w]() { surfaces.remove(w); }, Qt::UniqueConnection);
+                if (!surfaces.contains(w)) {
+                    surfaces[w];
+                    connect(w, &QObject::destroyed, this, [this, w]() { surfaces.remove(w); });
+                }
             } else if (event->type() == QEvent::Enter) {
                 surfaces[w].hasCursor = true; surfaces[w].hover.target = 1.0;
                 if (!tickTimer->isActive()) tickTimer->start(16);
@@ -924,7 +930,7 @@ protected:
                     s.pos.velocity += c ? 2.5 : -2.5;
                     if (!tickTimer->isActive()) tickTimer->start(16);
                 });
-                connect(chk, &QObject::destroyed, this, [this, chk]() { switches.remove(chk); }, Qt::UniqueConnection);
+                connect(chk, &QObject::destroyed, this, [this, chk]() { switches.remove(chk); });
             }
 
             if (event->type() == QEvent::Enter) {
