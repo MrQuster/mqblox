@@ -2,6 +2,20 @@
 
 Все значимые изменения проекта **MqBlox × MacOBlox** документируются в этом файле.
 
+## [36.5.0] — 2026-10-24
+
+### Стабильность процессов и интеграция с Wayland/Hyprland (Process & Desktop Stabilization)
+- **Тотальная очистка сокетов и PID-файлов Darling**:
+  - Метод `DarlingController::clearStaleDarlingProcesses()` теперь сканирует и очищает устаревшие `.init.pid` и `.darlingserver.sock` во всех возможных каталогах префиксов (`~/.darling`, `~/.local/share/darling`, `~/.var/app/xyz.narez.MacOBlox/data/darling` и `/tmp/`).
+  - Добавлен автоматизированный тест `testStaleSocketAndPidCleanup()`.
+- **Точное сопоставление в доке Serpantinum и Hyprland**:
+  - В `packaging/mqblox.desktop` обновлено `StartupWMClass=mqblox`, обеспечивающее 100% совпадение с Wayland `app_id = "mqblox"` и отображение иконки в доке.
+- **Инструменты тестирования и верификация жизненного цикла**:
+  - Добавлен набор подавлений `tests/tsan.supp` для калибровки ThreadSanitizer на рантайме Qt6/DBus/Wayland.
+  - Добавлен скрипт `tests/verify_10x_launch_exit.py` для подтверждения 10-кратного запуска и чистого завершения без утечек процессов.
+- **Оптимизация потребления памяти**:
+  - Снижено потребление памяти в простое: VmRSS ~81.4–82.0 МиБ (RssAnon ~22.7 МиБ).
+
 ## [36.4.0] — 2026-10-24
 
 ### Устранение критических зависаний и задержек запуска (Zero-Hang & Freeze Elimination)
