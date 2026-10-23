@@ -25,5 +25,5 @@
 | TASK-009 | Hyprland | Verify `mqblox.desktop` app ID and dock icon visibility on Wayland/Hyprland | Release Manager | DONE |
 | TASK-010 | Lifecycle | Execute 10 consecutive launch/exit cycles verifying clean termination and zero leaks | Tester | DONE |
 | TASK-011 | Audit | Verify Credits (narezy), MIT license, and zero cookie/password access | Security Auditor | DONE |
-| TASK-012 | Release | Run Full Pass 1 of all DONE criteria | Orchestrator | IN_PROGRESS |
-| TASK-013 | Release | Run Full Pass 2 of all DONE criteria | Orchestrator | TODO |
+| TASK-012 | Release | Run Full Pass 1 of all DONE criteria | Orchestrator | DONE |
+| TASK-013 | Release | Run Full Pass 2 of all DONE criteria | Orchestrator | DONE |
