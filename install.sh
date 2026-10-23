@@ -197,11 +197,45 @@ if [[ "$PREFIX" == "$HOME/.local" && -f "$PREFIX/share/applications/mqblox.deskt
   sed -i "s|^Exec=mqblox %u$|Exec=$PREFIX/bin/mqblox %u|" "$PREFIX/share/applications/mqblox.desktop"
 fi
 
+# Provide a transparent darling CLI bridge if Darling is installed via MacOBlox Flatpak
+if [[ ! -x /usr/bin/darling && ! -x /usr/local/bin/darling ]] && command -v flatpak >/dev/null 2>&1 && flatpak info xyz.narez.MacOBlox >/dev/null 2>&1; then
+  mkdir -p "$PREFIX/bin"
+  cat > "$PREFIX/bin/darling" <<'DARLING_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -x /usr/bin/darling ]]; then
+  exec /usr/bin/darling "$@"
+elif [[ -x /usr/local/bin/darling ]]; then
+  exec /usr/local/bin/darling "$@"
+fi
+exec flatpak run --filesystem=home --command=sh xyz.narez.MacOBlox -c '
+  export DPREFIX="${DPREFIX:-$XDG_DATA_HOME/darling}"
+  export LD_PRELOAD=/app/lib/macoblox/darling-noroot.so
+  export MACOBLOX_PID1_DYLIB=/app/lib/macoblox/launchd_pid1.dylib
+  export EGL_PLATFORM=x11
+  if ! pgrep -u "$(id -u)" -x darlingserver >/dev/null 2>&1; then
+    rm -f "$DPREFIX/.init.pid" "$DPREFIX/.darlingserver.sock"
+    darling shell /usr/bin/true 2>/dev/null || true
+  fi
+  exec darling "$@"
+' sh "$@"
+DARLING_EOF
+  chmod +x "$PREFIX/bin/darling"
+  printf '      Installed Flatpak Darling bridge -> %s/bin/darling\n' "$PREFIX"
+fi
+
 printf '[4/4] Building Darwin Mach-O shim (libMacOBloxShims.dylib) if Darling sysroot is present...\n'
 if "$PREFIX/share/mqblox/shims/build_debug_shim.sh" >/dev/null 2>&1; then
   mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/macoblox"
   cp -f "$PREFIX/share/mqblox/shims/build/libMacOBloxShims.dylib" \
     "${XDG_DATA_HOME:-$HOME/.local/share}/macoblox/libMacOBloxShims.dylib"
+  if [[ -d "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox" ]]; then
+    mkdir -p "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox/build"
+    cp -f "$PREFIX/share/mqblox/shims/build/libMacOBloxShims.dylib" \
+      "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox/libMacOBloxShims.dylib"
+    cp -f "$PREFIX/share/mqblox/shims/build/libMacOBloxShims.dylib" \
+      "$HOME/.var/app/xyz.narez.MacOBlox/data/macoblox/build/libMacOBloxShims.dylib"
+  fi
   printf '      Built and installed libMacOBloxShims.dylib -> %s\n' \
     "${XDG_DATA_HOME:-$HOME/.local/share}/macoblox/libMacOBloxShims.dylib"
 else

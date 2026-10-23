@@ -4192,6 +4192,24 @@ static id shared_current_display(id cls, SEL cmd) {
     return macoblox_shared_display;
 }
 
+// Guard Darling's -[NSUserDefaults parseArguments] against empty keys caused
+// by "--flag value" arguments (where substringFromIndex:1 on "--flag" leaves
+// "-flag", or "--" leaves "" after trimming, or parseArgumentValue: returns nil).
+static id (*orig_user_defaults_parse_args)(id, SEL) = 0;
+static id hooked_user_defaults_parse_args(id self, SEL cmd) {
+    id result = 0;
+    @try {
+        result = orig_user_defaults_parse_args ? orig_user_defaults_parse_args(self, cmd) : 0;
+    } @catch (id exception) {
+        (void)exception;
+        write_str("[MacOBlox] Caught NSException in -[NSUserDefaults parseArguments]; returning empty dictionary\n");
+        result = 0;
+    }
+    if (!result)
+        result = MSG0(id, objc_getClass("NSMutableDictionary"), "dictionary");
+    return result;
+}
+
 __attribute__((constructor))
 static void install_swizzles(void) {
     write_str("[MacOBlox] libMacOBloxShims loaded.\n");
@@ -4199,6 +4217,22 @@ static void install_swizzles(void) {
     write_str("[MacOBlox] Main executable ASLR slide: ");
     print_hex(slide);
     write_str("\n");
+
+    Class user_defaults_class = objc_getClass("NSUserDefaults");
+    if (user_defaults_class) {
+        Method parse_args = class_getInstanceMethod(user_defaults_class, sel_registerName("parseArguments"));
+        if (parse_args) {
+            orig_user_defaults_parse_args = (id (*)(id, SEL))method_getImplementation(parse_args);
+            method_setImplementation(parse_args, (IMP)hooked_user_defaults_parse_args);
+        }
+    }
+
+    const char* (*progname_fn)(void) = (const char* (*)(void))dlsym(RTLD_DEFAULT, "getprogname");
+    const char* progname = progname_fn ? progname_fn() : 0;
+    if (progname && ascii_contains_case_insensitive(progname, "RobloxCrashHandler")) {
+        write_str("[MacOBlox] RobloxCrashHandler detected: skipping AppKit/NSWindow swizzles\n");
+        return;
+    }
 
     // Let Darling and Crashpad own signals unless diagnosis is explicitly requested.
     const char *diagnose_signals = getenv("MACOBLOX_DIAGNOSTIC_SIGNALS");

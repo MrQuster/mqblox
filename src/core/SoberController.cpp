@@ -86,6 +86,17 @@ QString darlingMacOBloxUserDir(const QString &darlingPrefix) {
     return darlingPrefix + "/Users/" + user + "/Library/MacOBlox";
 }
 
+QString findDarlingBin() {
+    const QString inPath = QStandardPaths::findExecutable("darling");
+    if (!inPath.isEmpty()) return inPath;
+    const QStringList searchPaths = {
+        QDir::homePath() + "/.local/bin",
+        "/usr/local/bin",
+        "/usr/bin"
+    };
+    return QStandardPaths::findExecutable("darling", searchPaths);
+}
+
 } // namespace
 
 SoberController::SoberController(SettingsManager *settingsMgr, QObject *parent)
@@ -175,6 +186,8 @@ QString SoberController::shimSourceDir() const {
 QString SoberController::shimDylibPath() const {
     const QString inData = m_settingsMgr->macobloxDataDir() + "/libMacOBloxShims.dylib";
     if (QFile::exists(inData)) return inData;
+    const QString inDataBuild = m_settingsMgr->macobloxDataDir() + "/build/libMacOBloxShims.dylib";
+    if (QFile::exists(inDataBuild)) return inDataBuild;
     const QString inShimBuild = shimSourceDir() + "/build/libMacOBloxShims.dylib";
     if (QFile::exists(inShimBuild)) return inShimBuild;
     const QString inShimDir = shimSourceDir() + "/libMacOBloxShims.dylib";
@@ -273,11 +286,12 @@ void SoberController::logoutAsync() {
     const QString hostDir = darlingMacOBloxUserDir(m_settingsMgr->darlingPrefixDir());
     const QString user = qEnvironmentVariable("USER", QDir::homePath().section('/', -1));
     (void)QtConcurrent::run([this, hostDir, user]() {
-        if (!QStandardPaths::findExecutable("darling").isEmpty()) {
+        const QString darlingBin = findDarlingBin();
+        if (!darlingBin.isEmpty()) {
             QProcess p;
-            p.start("darling", {"shell", "/bin/rm", "-rf",
-                                "/Users/" + user + "/Library/MacOBlox/Cookies.plist",
-                                "/Users/" + user + "/Library/MacOBlox/Keychain"});
+            p.start(darlingBin, {"shell", "/bin/rm", "-rf",
+                                 "/Users/" + user + "/Library/MacOBlox/Cookies.plist",
+                                 "/Users/" + user + "/Library/MacOBlox/Keychain"});
             p.waitForFinished(4000);
         }
         QFile::remove(hostDir + "/Cookies.plist");
@@ -483,9 +497,10 @@ void SoberController::launchRoblox(const QString &customUri) {
     env.insert("EGL_PLATFORM", "x11");
     m_gameProc->setProcessEnvironment(env);
 
+    const QString darlingBin = findDarlingBin().isEmpty() ? QString("darling") : findDarlingBin();
     const QStringList args = buildFlatpakArgs(targetUri);
-    emit logGenerated("[🚀] Запуск MacOBlox (Darling): darling " + args.join(' '));
-    m_gameProc->start("darling", args);
+    emit logGenerated("[🚀] Запуск MacOBlox (Darling): " + darlingBin + " " + args.join(' '));
+    m_gameProc->start(darlingBin, args);
 }
 
 void SoberController::stopRobloxAsync() {
@@ -495,12 +510,13 @@ void SoberController::stopRobloxAsync() {
 
     const QString dprefix = m_settingsMgr->darlingPrefixDir();
     (void)QtConcurrent::run([this, dprefix]() {
-        if (!QStandardPaths::findExecutable("darling").isEmpty()) {
+        const QString darlingBin = findDarlingBin();
+        if (!darlingBin.isEmpty()) {
             QProcess killer;
             QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
             if (!dprefix.isEmpty()) env.insert("DPREFIX", dprefix);
             killer.setProcessEnvironment(env);
-            killer.start("darling", {"shell", "/usr/bin/killall", "-9", "RobloxPlayer", "RobloxCrashHandler"});
+            killer.start(darlingBin, {"shell", "/usr/bin/killall", "-9", "RobloxPlayer", "RobloxCrashHandler"});
             killer.waitForFinished(3000);
         }
         clearStaleDarlingProcesses();
@@ -521,12 +537,13 @@ void SoberController::restartDarlingAsync() {
     emit logGenerated("[🔄] Перезапуск контейнера Darling...");
     const QString dprefix = m_settingsMgr->darlingPrefixDir();
     (void)QtConcurrent::run([this, dprefix]() {
-        if (!QStandardPaths::findExecutable("darling").isEmpty()) {
+        const QString darlingBin = findDarlingBin();
+        if (!darlingBin.isEmpty()) {
             QProcess p;
             QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
             if (!dprefix.isEmpty()) env.insert("DPREFIX", dprefix);
             p.setProcessEnvironment(env);
-            p.start("darling", {"shutdown"});
+            p.start(darlingBin, {"shutdown"});
             p.waitForFinished(4000);
         }
         clearStaleDarlingProcesses();

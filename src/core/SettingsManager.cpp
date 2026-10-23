@@ -62,7 +62,15 @@ QString SettingsManager::macobloxDataDir() const {
     const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
     if (!testDir.isEmpty()) return testDir + "/macoblox";
     const QString xdgData = qEnvironmentVariable("XDG_DATA_HOME", QDir::homePath() + "/.local/share");
-    return xdgData + "/macoblox";
+    const QString localDir = xdgData + "/macoblox";
+    if (QFileInfo::exists(localDir + "/RobloxPlayer.app/Contents/MacOS/RobloxPlayer")) {
+        return localDir;
+    }
+    const QString flatpakDir = QDir::homePath() + "/.var/app/xyz.narez.MacOBlox/data/macoblox";
+    if (QFileInfo::exists(flatpakDir + "/RobloxPlayer.app/Contents/MacOS/RobloxPlayer")) {
+        return flatpakDir;
+    }
+    return localDir;
 }
 
 QString SettingsManager::robloxAppDir() const {
@@ -76,7 +84,13 @@ QString SettingsManager::clientAppSettingsPath() const {
 QString SettingsManager::darlingPrefixDir() const {
     const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
     if (!testDir.isEmpty()) return testDir + "/darling";
-    return qEnvironmentVariable("DPREFIX", QDir::homePath() + "/.darling");
+    const QString envPrefix = qEnvironmentVariable("DPREFIX");
+    if (!envPrefix.isEmpty()) return envPrefix;
+    const QString homePrefix = QDir::homePath() + "/.darling";
+    if (QDir(homePrefix).exists()) return homePrefix;
+    const QString flatpakPrefix = QDir::homePath() + "/.var/app/xyz.narez.MacOBlox/data/darling";
+    if (QDir(flatpakPrefix).exists()) return flatpakPrefix;
+    return homePrefix;
 }
 
 QString SettingsManager::soberBaseDir() const {

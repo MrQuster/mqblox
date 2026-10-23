@@ -216,3 +216,39 @@ static _Bool macoblox_availability_version_check(unsigned long count, darwin_bui
     return 0;
 }
 DYLD_INTERPOSE(macoblox_availability_version_check, _availability_version_check)
+
+/* Darling does not implement sysctlbyname("machdep.cpu.brand_string", ...).
+ * RobloxPlayer calls it into an uninitialized stack buffer and passes the
+ * buffer as --annotation=CPUMake=<buf> to RobloxCrashHandler. When the buffer
+ * contains non-UTF-8 stack bytes, Darling's -[NSProcessInfo arguments]
+ * inserts nil into the NSArray (via -[__NSCFArray addObject:] which does not
+ * check for nil), causing -[NSUserDefaults parseArguments] to pass nil as the
+ * object to -[__NSCFDictionary setObject:forKey:] and crash on startup. */
+extern int sysctlbyname(const char *, void *, unsigned long *, const void *, unsigned long);
+
+static int str_eq(const char *a, const char *b) {
+    if (!a || !b) return 0;
+    while (*a && *a == *b) { a++; b++; }
+    return *a == *b;
+}
+
+static int macoblox_sysctlbyname(const char *name, void *oldp, unsigned long *oldlenp,
+                                 const void *newp, unsigned long newlen) {
+    int rc = sysctlbyname(name, oldp, oldlenp, newp, newlen);
+    if (rc != 0 && str_eq(name, "machdep.cpu.brand_string")) {
+        static const char fallback[] = "x86_64 CPU";
+        unsigned long len = sizeof(fallback);
+        if (oldp && oldlenp && *oldlenp > 0) {
+            unsigned long copy_len = (*oldlenp < len) ? (*oldlenp - 1) : (len - 1);
+            char *dst = (char *)oldp;
+            for (unsigned long i = 0; i < copy_len; i++)
+                dst[i] = fallback[i];
+            dst[copy_len] = '\0';
+        }
+        if (oldlenp)
+            *oldlenp = len;
+        return 0;
+    }
+    return rc;
+}
+DYLD_INTERPOSE(macoblox_sysctlbyname, sysctlbyname)
