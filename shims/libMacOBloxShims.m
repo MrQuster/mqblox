@@ -17,6 +17,10 @@ extern id objc_msgSend(id self, SEL op, ...);
 
 extern char *getenv(const char *);
 extern int write(int fd, const void *buf, unsigned long count);
+extern long read(int fd, void *buf, unsigned long count);
+extern int pipe(int pipefd[2]);
+extern int close(int fd);
+extern unsigned char class_respondsToSelector(Class cls, SEL sel);
 extern int backtrace(void** array, int size);
 extern void backtrace_symbols_fd(void* const* array, int size, int fd);
 extern void* dlsym(void* handle, const char* symbol);
@@ -1307,6 +1311,38 @@ void my_cxa_throw(void* thrown_exception, void* tinfo, void (*dest)(void*)) {
                 }
             }
         }
+        // Safely check if thrown exception derives from std::exception via __dynamic_cast
+        typedef void* (*dcast_fn)(const void*, const void*, const void*, long);
+        dcast_fn dynamic_cast_ptr = (dcast_fn)dlsym(RTLD_DEFAULT, "__dynamic_cast");
+        void* std_exc_ti = dlsym(RTLD_DEFAULT, "_ZTISt9exception");
+        if (dynamic_cast_ptr && std_exc_ti && thrown_exception) {
+            void* std_exc = dynamic_cast_ptr(thrown_exception, tinfo, std_exc_ti, 0);
+            if (std_exc) {
+                int pfd[2];
+                if (pipe(pfd) == 0) {
+                    void* vt = 0;
+                    if (write(pfd[1], std_exc, sizeof(void*)) == sizeof(void*)) {
+                        read(pfd[0], &vt, sizeof(void*));
+                        void* what_slot = 0;
+                        if (vt && write(pfd[1], (char*)vt + 2 * sizeof(void*), sizeof(void*)) == sizeof(void*)) {
+                            read(pfd[0], &what_slot, sizeof(void*));
+                            if (what_slot) {
+                                const char* (*what_fn)(void*) = (const char* (*)(void*))what_slot;
+                                const char* msg = what_fn(std_exc);
+                                if (msg && write(pfd[1], msg, 1) == 1) {
+                                    char dummy; read(pfd[0], &dummy, 1);
+                                    write_str("[MacOBlox Hook] std::exception what(): ");
+                                    write_str(msg);
+                                    write_str("\n");
+                                }
+                            }
+                        }
+                    }
+                    close(pfd[0]);
+                    close(pfd[1]);
+                }
+            }
+        }
     }
     // C++ can throw scalars and arbitrary classes, not just std::exception.
     // Never interpret an unknown exception object as a vtable or call through it.
@@ -1334,8 +1370,49 @@ void my_objc_exception_throw(id exception) {
         write_str("[MacOBlox Hook] Exception class: ");
         write_str(object_getClassName(exception));
         write_str("\n");
+        SEL name_sel = sel_registerName("name");
+        SEL reason_sel = sel_registerName("reason");
+        SEL uinfo_sel = sel_registerName("userInfo");
+        if (class_respondsToSelector(object_getClass(exception), name_sel)) {
+            id name = ((id (*)(id, SEL))objc_msgSend)(exception, name_sel);
+            if (name && class_respondsToSelector(object_getClass(name), sel_registerName("UTF8String"))) {
+                const char* s = ((const char* (*)(id, SEL))objc_msgSend)(name, sel_registerName("UTF8String"));
+                if (s) {
+                    write_str("[MacOBlox Hook] Exception name: ");
+                    write_str(s);
+                    write_str("\n");
+                }
+            }
+        }
+        if (class_respondsToSelector(object_getClass(exception), reason_sel)) {
+            id reason = ((id (*)(id, SEL))objc_msgSend)(exception, reason_sel);
+            if (reason && class_respondsToSelector(object_getClass(reason), sel_registerName("UTF8String"))) {
+                const char* s = ((const char* (*)(id, SEL))objc_msgSend)(reason, sel_registerName("UTF8String"));
+                if (s) {
+                    write_str("[MacOBlox Hook] Exception reason: ");
+                    write_str(s);
+                    write_str("\n");
+                }
+            }
+        }
+        if (class_respondsToSelector(object_getClass(exception), uinfo_sel)) {
+            id uinfo = ((id (*)(id, SEL))objc_msgSend)(exception, uinfo_sel);
+            if (uinfo && class_respondsToSelector(object_getClass(uinfo), sel_registerName("description"))) {
+                id desc = ((id (*)(id, SEL))objc_msgSend)(uinfo, sel_registerName("description"));
+                if (desc && class_respondsToSelector(object_getClass(desc), sel_registerName("UTF8String"))) {
+                    const char* s = ((const char* (*)(id, SEL))objc_msgSend)(desc, sel_registerName("UTF8String"));
+                    if (s) {
+                        write_str("[MacOBlox Hook] Exception userInfo: ");
+                        write_str(s);
+                        write_str("\n");
+                    }
+                }
+            }
+        }
     }
     write_str("[MacOBlox Hook] Backtrace:\n");
+    print_backtrace();
+    write_str("[MacOBlox Hook] ========================================\n\n");
     void (*real_throw)(id) = (void (*)(id))dlsym(RTLD_NEXT, "objc_exception_throw");
     if (real_throw) {
         real_throw(exception);
@@ -1440,6 +1517,11 @@ static void print_addr_info(const char* prefix, void* addr) {
             write_str(" in ");
             write_str(dli.dli_fname);
         }
+        if (dli.dli_fbase) {
+            write_str(" [base+");
+            print_hex((unsigned long long)((char*)addr - (char*)dli.dli_fbase));
+            write_str("]");
+        }
         if (dli.dli_sname) {
             write_str(" (");
             write_str(dli.dli_sname);
@@ -1491,6 +1573,73 @@ static void crash_handler(int sig, void* info, void* uap) {
             print_addr_info("  RDI info: ", (void*)mc[6]);
             print_addr_info("  RSI info: ", (void*)mc[7]);
 
+            if (mc[7]) { // RSI selector/string
+                int pfd[2];
+                if (pipe(pfd) == 0) {
+                    char buf[128];
+                    int n = write(pfd[1], (const void*)mc[7], 127);
+                    if (n > 0) {
+                        int r = read(pfd[0], buf, n);
+                        if (r > 0) {
+                            buf[r] = 0;
+                            for (int bi = 0; bi < r; bi++) {
+                                if (buf[bi] == 0) break;
+                                if (buf[bi] < 32 || buf[bi] > 126) { buf[bi] = 0; break; }
+                            }
+                            if (buf[0]) {
+                                write_str("  RSI selector string: \"");
+                                write_str(buf);
+                                write_str("\"\n");
+                            }
+                        }
+                    }
+                    close(pfd[0]);
+                    close(pfd[1]);
+                }
+            }
+
+            if (mc[6]) { // RDI object
+                int pfd[2];
+                if (pipe(pfd) == 0) {
+                    void* obj = (void*)mc[6];
+                    void* isa = 0;
+                    if (write(pfd[1], obj, sizeof(void*)) == sizeof(void*)) {
+                        read(pfd[0], &isa, sizeof(void*));
+                        write_str("  RDI memory readable, isa: ");
+                        print_hex((unsigned long long)isa);
+                        write_str("\n");
+                    } else {
+                        write_str("  RDI is unmapped memory!\n");
+                    }
+                    close(pfd[0]);
+                    close(pfd[1]);
+                }
+            }
+
+            // Inspect dispatch block on stack
+            void** rbp = (void**)mc[8];
+            if (rbp && (unsigned long long)rbp > 0x1000) {
+                int pfd[2];
+                if (pipe(pfd) == 0) {
+                    void* block_ptr = 0;
+                    if (write(pfd[1], (char*)rbp - 16, sizeof(void*)) == sizeof(void*)) {
+                        read(pfd[0], &block_ptr, sizeof(void*));
+                        write_str("  Dispatch block ptr: ");
+                        print_hex((unsigned long long)block_ptr);
+                        write_str("\n");
+                        if (block_ptr && (unsigned long long)block_ptr > 0x1000) {
+                            void* invoke_fn = 0;
+                            if (write(pfd[1], (char*)block_ptr + 16, sizeof(void*)) == sizeof(void*)) {
+                                read(pfd[0], &invoke_fn, sizeof(void*));
+                                print_addr_info("  Dispatch block invoke fn: ", invoke_fn);
+                            }
+                        }
+                    }
+                    close(pfd[0]);
+                    close(pfd[1]);
+                }
+            }
+
             write_str("\n[MacOBlox Stack Walk from RBP]:\n");
             void** fp = (void**)mc[8];
             for (int i = 0; i < 30 && fp; i++) {
@@ -1499,6 +1648,24 @@ static void crash_handler(int sig, void* info, void* uap) {
                 write_str("  #"); print_num(i); write_str(" ");
                 print_addr_info("", ret_addr);
                 fp = (void**)fp[0];
+            }
+
+            write_str("\n[MacOBlox Stack Dump around RSP]:\n");
+            void** sp = (void**)mc[9];
+            for (int i = 0; i < 24 && sp; i++) {
+                int pfd[2];
+                if (pipe(pfd) == 0) {
+                    void* val = 0;
+                    if (write(pfd[1], &sp[i], sizeof(void*)) == sizeof(void*)) {
+                        read(pfd[0], &val, sizeof(void*));
+                        if (val && (unsigned long long)val > 0x10000) {
+                            write_str("  [RSP+"); print_num(i * 8); write_str("] ");
+                            print_addr_info("", val);
+                        }
+                    }
+                    close(pfd[0]);
+                    close(pfd[1]);
+                }
             }
         }
     }
@@ -3114,20 +3281,135 @@ static void macoblox_log_url(const char* prefix, id url) {
     write_str(utf8 ? utf8 : "(nil)");
     write_str("\n");
 }
-static id (*orig_web_view_init)(id, SEL, MacOBloxRect, id) = 0;
-static id hooked_web_view_init(id self, SEL cmd, MacOBloxRect frame, id configuration) {
-    write_str("[MacOBlox Web] WKWebView initWithFrame:configuration:\n");
-    return orig_web_view_init(self, cmd, frame, configuration);
+
+static id hooked_web_view_init_frame(id self, SEL cmd, MacOBloxRect frame) {
+    (void)cmd; (void)frame;
+    write_str("[MacOBlox Web] -[WKWebView initWithFrame:] -> returning self\n");
+    return self;
 }
+
+static id hooked_web_view_init_config(id self, SEL cmd, MacOBloxRect frame, id configuration) {
+    (void)cmd; (void)frame; (void)configuration;
+    write_str("[MacOBlox Web] -[WKWebView initWithFrame:configuration:] -> returning self\n");
+    return self;
+}
+
+static id macoblox_custom_user_agent = 0;
+static id hooked_web_view_value_for_key(id self, SEL cmd, id key) {
+    write_str("[MacOBlox Web] -[WKWebView valueForKey:] called\n");
+    if (key) {
+        const char* str = ((const char* (*)(id, SEL))objc_msgSend)(key, sel_registerName("UTF8String"));
+        if (str) {
+            write_str("  key: ");
+            write_str(str);
+            write_str("\n");
+            if (ascii_strings_equal(str, "userAgent")) {
+                if (macoblox_custom_user_agent) {
+                    return macoblox_custom_user_agent;
+                }
+                return ((id (*)(id, SEL, const char*))objc_msgSend)(
+                    (id)objc_getClass("NSString"),
+                    sel_registerName("stringWithUTF8String:"),
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15");
+            }
+        }
+    }
+    return 0;
+}
+
+static id hooked_web_view_user_agent(id self, SEL cmd) {
+    (void)self; (void)cmd;
+    write_str("[MacOBlox Web] -[WKWebView userAgent] called\n");
+    if (macoblox_custom_user_agent) {
+        return macoblox_custom_user_agent;
+    }
+    return ((id (*)(id, SEL, const char*))objc_msgSend)(
+        (id)objc_getClass("NSString"),
+        sel_registerName("stringWithUTF8String:"),
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15");
+}
+
+static id hooked_web_view_custom_user_agent(id self, SEL cmd) {
+    (void)self; (void)cmd;
+    return macoblox_custom_user_agent;
+}
+
+static void hooked_web_view_set_custom_user_agent(id self, SEL cmd, id ua) {
+    (void)self; (void)cmd;
+    if (macoblox_custom_user_agent) {
+        ((void (*)(id, SEL))objc_msgSend)(macoblox_custom_user_agent, sel_registerName("release"));
+    }
+    macoblox_custom_user_agent = ua ? ((id (*)(id, SEL))objc_msgSend)(ua, sel_registerName("retain")) : 0;
+}
+
 static id (*orig_web_view_load_request)(id, SEL, id) = 0;
 static id hooked_web_view_load_request(id self, SEL cmd, id request) {
     id url = request ? ((id (*)(id, SEL))objc_msgSend)(request, sel_registerName("URL")) : 0;
     macoblox_log_url("[MacOBlox Web] WKWebView loadRequest: ", url);
-    return orig_web_view_load_request(self, cmd, request);
+    if (orig_web_view_load_request) {
+        return orig_web_view_load_request(self, cmd, request);
+    }
+    return 0;
 }
+
+static void macoblox_install_wkwebview_shims(void) {
+    static volatile int wk_hooked;
+    if (!__sync_bool_compare_and_swap(&wk_hooked, 0, 1)) return;
+
+    Class web_view_class = objc_getClass("WKWebView");
+    if (!web_view_class) return;
+
+    SEL init_frame = sel_registerName("initWithFrame:");
+    if (!class_addMethod(web_view_class, init_frame, (IMP)hooked_web_view_init_frame, "@@:{CGRect}")) {
+        Method m = class_getInstanceMethod(web_view_class, init_frame);
+        if (m) method_setImplementation(m, (IMP)hooked_web_view_init_frame);
+    }
+
+    SEL init_conf = sel_registerName("initWithFrame:configuration:");
+    if (!class_addMethod(web_view_class, init_conf, (IMP)hooked_web_view_init_config, "@@:{CGRect}@")) {
+        Method m = class_getInstanceMethod(web_view_class, init_conf);
+        if (m) method_setImplementation(m, (IMP)hooked_web_view_init_config);
+    }
+
+    SEL vfk = sel_registerName("valueForKey:");
+    if (!class_addMethod(web_view_class, vfk, (IMP)hooked_web_view_value_for_key, "@@:@")) {
+        Method m = class_getInstanceMethod(web_view_class, vfk);
+        if (m) method_setImplementation(m, (IMP)hooked_web_view_value_for_key);
+    }
+
+    SEL ua_sel = sel_registerName("userAgent");
+    if (!class_addMethod(web_view_class, ua_sel, (IMP)hooked_web_view_user_agent, "@@:")) {
+        Method m = class_getInstanceMethod(web_view_class, ua_sel);
+        if (m) method_setImplementation(m, (IMP)hooked_web_view_user_agent);
+    }
+
+    SEL cua_sel = sel_registerName("customUserAgent");
+    if (!class_addMethod(web_view_class, cua_sel, (IMP)hooked_web_view_custom_user_agent, "@@:")) {
+        Method m = class_getInstanceMethod(web_view_class, cua_sel);
+        if (m) method_setImplementation(m, (IMP)hooked_web_view_custom_user_agent);
+    }
+
+    SEL set_cua_sel = sel_registerName("setCustomUserAgent:");
+    if (!class_addMethod(web_view_class, set_cua_sel, (IMP)hooked_web_view_set_custom_user_agent, "v@:@")) {
+        Method m = class_getInstanceMethod(web_view_class, set_cua_sel);
+        if (m) method_setImplementation(m, (IMP)hooked_web_view_set_custom_user_agent);
+    }
+
+    SEL load_req = sel_registerName("loadRequest:");
+    Method m_lr = class_getInstanceMethod(web_view_class, load_req);
+    if (m_lr) {
+        orig_web_view_load_request = (id (*)(id, SEL, id))method_getImplementation(m_lr);
+        method_setImplementation(m_lr, (IMP)hooked_web_view_load_request);
+    } else {
+        class_addMethod(web_view_class, load_req, (IMP)hooked_web_view_load_request, "@@:@");
+    }
+
+    write_str("[MacOBlox Web] Installed robust WKWebView shims (initWithFrame:, valueForKey:, userAgent)\n");
+}
+
 static MacOBloxBool (*orig_workspace_open_url)(id, SEL, id) = 0;
 static MacOBloxBool hooked_workspace_open_url(id self, SEL cmd, id url) {
-    MacOBloxBool result = orig_workspace_open_url(self, cmd, url);
+    MacOBloxBool result = orig_workspace_open_url ? orig_workspace_open_url(self, cmd, url) : 0;
     macoblox_log_url(result ? "[MacOBlox Web] NSWorkspace openURL: (ok) "
                             : "[MacOBlox Web] NSWorkspace openURL: (failed) ", url);
     return result;
@@ -3262,6 +3544,8 @@ extern const id kSecClassGenericPassword;
 extern const id kSecAttrAccount;
 extern const id kSecValueData;
 extern const id kSecReturnData;
+extern const id kSecReturnAttributes;
+extern const id kSecReturnRef;
 extern int chmod(const char*, unsigned short);
 #define MACOBLOX_ERR_SEC_ITEM_NOT_FOUND (-25300)
 
@@ -3324,10 +3608,25 @@ static int macoblox_SecItemCopyMatching(id query, id* result) {
     if (!data)
         return MACOBLOX_ERR_SEC_ITEM_NOT_FOUND;
     id wants_data = ((id (*)(id, SEL, id))objc_msgSend)(query, sel_registerName("objectForKey:"), kSecReturnData);
-    if (result)
-        *result = wants_data && ((MacOBloxBool (*)(id, SEL))objc_msgSend)(wants_data, sel_registerName("boolValue"))
-            ? ((id (*)(id, SEL))objc_msgSend)(data, sel_registerName("retain"))  // caller owns (+1)
-            : 0;
+    id wants_attrs = ((id (*)(id, SEL, id))objc_msgSend)(query, sel_registerName("objectForKey:"), kSecReturnAttributes);
+    MacOBloxBool bool_data = wants_data && ((MacOBloxBool (*)(id, SEL))objc_msgSend)(wants_data, sel_registerName("boolValue"));
+    MacOBloxBool bool_attrs = wants_attrs && ((MacOBloxBool (*)(id, SEL))objc_msgSend)(wants_attrs, sel_registerName("boolValue"));
+
+    if (result) {
+        if (bool_attrs) {
+            id dict = ((id (*)(id, SEL))objc_msgSend)((id)objc_getClass("NSMutableDictionary"), sel_registerName("dictionary"));
+            id item_class = ((id (*)(id, SEL, id))objc_msgSend)(query, sel_registerName("objectForKey:"), kSecClass);
+            id account = ((id (*)(id, SEL, id))objc_msgSend)(query, sel_registerName("objectForKey:"), kSecAttrAccount);
+            if (item_class) ((void (*)(id, SEL, id, id))objc_msgSend)(dict, sel_registerName("setObject:forKey:"), item_class, kSecClass);
+            if (account) ((void (*)(id, SEL, id, id))objc_msgSend)(dict, sel_registerName("setObject:forKey:"), account, kSecAttrAccount);
+            if (bool_data) ((void (*)(id, SEL, id, id))objc_msgSend)(dict, sel_registerName("setObject:forKey:"), data, kSecValueData);
+            *result = ((id (*)(id, SEL))objc_msgSend)(dict, sel_registerName("retain"));
+        } else if (bool_data) {
+            *result = ((id (*)(id, SEL))objc_msgSend)(data, sel_registerName("retain"));  // caller owns (+1)
+        } else {
+            *result = 0;
+        }
+    }
     return 0;
 }
 DYLD_INTERPOSE(macoblox_SecItemCopyMatching, SecItemCopyMatching);
@@ -3744,28 +4043,16 @@ static void macoblox_install_late_hooks(void) {
             method_setImplementation(method, (IMP)hooked_pixel_format_init);
         }
     }
+    macoblox_install_wkwebview_shims();
     static volatile int web_hooked;
-    Class web_view_class = objc_getClass("WKWebView");
     Class workspace_class = objc_getClass("NSWorkspace");
-    if (web_view_class && workspace_class &&
-        __sync_bool_compare_and_swap(&web_hooked, 0, 1)) {
-        Method method = class_getInstanceMethod(
-            web_view_class, sel_registerName("initWithFrame:configuration:"));
-        if (method) {
-            orig_web_view_init = (id (*)(id, SEL, MacOBloxRect, id))method_getImplementation(method);
-            method_setImplementation(method, (IMP)hooked_web_view_init);
-        }
-        method = class_getInstanceMethod(web_view_class, sel_registerName("loadRequest:"));
-        if (method) {
-            orig_web_view_load_request = (id (*)(id, SEL, id))method_getImplementation(method);
-            method_setImplementation(method, (IMP)hooked_web_view_load_request);
-        }
-        method = class_getInstanceMethod(workspace_class, sel_registerName("openURL:"));
+    if (workspace_class && __sync_bool_compare_and_swap(&web_hooked, 0, 1)) {
+        Method method = class_getInstanceMethod(workspace_class, sel_registerName("openURL:"));
         if (method) {
             orig_workspace_open_url = (MacOBloxBool (*)(id, SEL, id))method_getImplementation(method);
             method_setImplementation(method, (IMP)hooked_workspace_open_url);
         }
-        write_str("[MacOBlox] Tracing WKWebView and NSWorkspace openURL:\n");
+        write_str("[MacOBlox] Tracing NSWorkspace openURL:\n");
     }
     Class window_class = objc_getClass("NSWindow");
     if (window_class &&
@@ -4237,6 +4524,8 @@ static void install_swizzles(void) {
         class_addMethod(eventManager, currentEvent, (IMP)no_current_apple_event, "@@:");
         write_str("[MacOBlox] Added currentAppleEvent=nil for direct launch\n");
     }
+
+    macoblox_install_wkwebview_shims();
 
     Class url_class = objc_getClass("NSURL");
     SEL relative_file_url = sel_registerName("fileURLWithPath:relativeToURL:");
