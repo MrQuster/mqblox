@@ -5,6 +5,7 @@
 #include <QPainterPath>
 #include <QRadialGradient>
 #include <QStyleHints>
+#include <QtGlobal>
 #include <algorithm>
 
 namespace mqblox {
@@ -48,9 +49,11 @@ bool Ton618GlWidget::isLightThemeActive() const {
     VisualParams vp = visuals();
     if (vp.highContrast) return false;
     if (vp.themeMode == 1) return true;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     if (vp.themeMode == 2 && QGuiApplication::styleHints()) {
         return QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Light;
     }
+#endif
     return false;
 }
 
