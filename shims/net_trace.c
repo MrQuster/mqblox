@@ -146,6 +146,8 @@ static void stall_signal_handler(int signal, void *info, void *context) {
 }
 
 static void check_stalls(void) {
+    if (!trace_enabled())
+        return;
     static int handler_installed;
     if (!handler_installed) {
         struct darwin_sigaction_t action = {stall_signal_handler, 0, 0x0040 /* SA_SIGINFO */};
@@ -592,4 +594,24 @@ static int traced_kevent(int queue, const void *changes, int change_count, void 
             return 0;
     }
 }
-DYLD_INTERPOSE(traced_kevent, kevent)
+    DYLD_INTERPOSE(traced_kevent, kevent)
+
+extern int close(int);
+static int macoblox_close(int fd) {
+    if (fd >= 0 && fd < 1024) {
+        reader_thread[fd] = 0;
+        last_read_time[fd] = 0;
+        stall_dumped[fd] = 0;
+        lock_watched();
+        for (int i = 0; i < MAX_WATCHED; i++) {
+            if (watched[i].fd == fd) {
+                watched[i].fd = 0;
+                watched[i].queue = 0;
+                watched[i].enabled = 0;
+            }
+        }
+        unlock_watched();
+    }
+    return close(fd);
+}
+DYLD_INTERPOSE(macoblox_close, close)

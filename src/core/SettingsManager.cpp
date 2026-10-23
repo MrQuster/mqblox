@@ -241,10 +241,13 @@ QJsonObject SettingsManager::buildEffectiveFflags(QString *errMsg) const {
     // macOS RobloxPlayer uses OpenGL 4.1 Core via Darling CGL + gl_profile.c
     fflags["FFlagDebugGraphicsPreferOpenGL"] = true;
 
-    if (m_settings.lighting == LightingMode::Voxel || m_settings.fullBright) {
-        fflags["DFFlagDebugRenderForceTechnologyVoxel"] = true;
-        fflags["FFlagDebugForceFutureIsBrightPhase2"] = false;
-        fflags["FFlagDebugForceFutureIsBrightPhase3"] = false;
+    if (m_settings.lighting == LightingMode::Voxel) {
+        // Modern Roblox (0.744+) removed legacy Voxel shaders, causing missing shader crashes.
+        // Emulate Voxel lighting via ShadowMap with zeroed shadows and culling for maximum FPS.
+        fflags["FFlagDebugForceFutureIsBrightPhase2"] = true;
+        fflags["FIntRenderShadowIntensity"] = 0;
+        fflags["DFIntCullFactorPixelThresholdShadowMapHighQuality"] = 2147483647;
+        fflags["DFIntCullFactorPixelThresholdShadowMapLowQuality"] = 2147483647;
     } else if (m_settings.lighting == LightingMode::ShadowMap) {
         fflags["FFlagDebugForceFutureIsBrightPhase2"] = true;
     } else if (m_settings.lighting == LightingMode::FuturePhase3) {

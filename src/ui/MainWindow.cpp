@@ -1043,7 +1043,7 @@ QWidget *MainWindow::buildGraphicsPage() {
 
     g1->addWidget(new QLabel(tr("Технология освещения:")), 0, 0);
     m_comboLighting = new DarkComboBox();
-    m_comboLighting->addItem(tr("Voxel (Максимум FPS)"), static_cast<int>(LightingMode::Voxel));
+    m_comboLighting->addItem(tr("Voxel Flat (Максимум FPS)"), static_cast<int>(LightingMode::Voxel));
     m_comboLighting->addItem(tr("ShadowMap (Мягкие тени)"), static_cast<int>(LightingMode::ShadowMap));
     m_comboLighting->addItem(tr("Future Phase 3 (Ультра-реализм)"), static_cast<int>(LightingMode::FuturePhase3));
     m_comboLighting->addItem(tr("По умолчанию плейса"), static_cast<int>(LightingMode::GameDefault));
@@ -1191,7 +1191,7 @@ QWidget *MainWindow::buildCameraModsPage() {
     netRow->addWidget(m_comboNetOpt, 1);
     cc->addLayout(netRow);
 
-    m_chkFullBright = new QCheckBox(tr("☀️ FullBright (Voxel + тени 0 + без PostFX)"));
+    m_chkFullBright = new QCheckBox(tr("☀️ FullBright (тени 0 + без PostFX)"));
     m_chkClearFog   = new QCheckBox(tr("🌿 Убрать 3D-траву на ландшафте (FIntFRMMinGrassDistance=0)"));
     m_chkHitboxes   = new QCheckBox(tr("📐 Упростить геометрию дальних объектов (CSG LOD 0)"));
     m_chkHudFps     = new QCheckBox(tr("📊 Включить счётчик FPS в игре (FFlagDebugDisplayFPS + MACOBLOX_FPS_LOG)"));

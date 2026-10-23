@@ -32,7 +32,7 @@ struct AppSettings {
     int schemaVersion = 36;
 
     ResolutionMode resMode = ResolutionMode::Auto;
-    LightingMode lighting = LightingMode::Voxel;
+    LightingMode lighting = LightingMode::GameDefault;
     TextureQuality textureQuality = TextureQuality::Auto;
     MsaaMode msaa = MsaaMode::Off;
     CameraZoomMode camZoom = CameraZoomMode::Cosmic9999;

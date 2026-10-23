@@ -354,7 +354,7 @@ QString DarlingController::buildDarlingLaunchScript(const QString &targetUri) co
     }
     envExports << "export MACOBLOX_WM_CLASS=mqblox";
     envExports << "export MACOBLOX_TRACE_EXIT=1";
-    envExports << "export MACOBLOX_TRACE_EXCEPTIONS=1";
+    if (s.diagnosticSignals) envExports << "export MACOBLOX_TRACE_EXCEPTIONS=1";
     if (s.fpsLog || s.showHudFps) envExports << "export MACOBLOX_FPS_LOG=1";
     if (s.traceUdp) envExports << "export MACOBLOX_TRACE_UDP=1";
     if (s.traceLock) envExports << "export MACOBLOX_TRACE_LOCK=1";
