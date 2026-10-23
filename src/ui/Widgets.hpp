@@ -58,12 +58,16 @@ struct IosSpring {
 
 inline Ton618GlWidget *findBackdropTon618(const QWidget *w) {
     if (!w) return nullptr;
+    static QPointer<Ton618GlWidget> s_cachedBackdrop;
+    if (s_cachedBackdrop) return s_cachedBackdrop.data();
     QWidget *top = w->window();
     if (!top) return nullptr;
     if (auto *direct = top->findChild<Ton618GlWidget *>(QString{}, Qt::FindDirectChildrenOnly)) {
+        s_cachedBackdrop = direct;
         return direct;
     }
-    return top->findChild<Ton618GlWidget *>();
+    s_cachedBackdrop = top->findChild<Ton618GlWidget *>();
+    return s_cachedBackdrop.data();
 }
 
 inline QColor blendColors(const QColor &a, const QColor &b, double t, int alpha = 255) {

@@ -1,12 +1,15 @@
 #pragma once
 #include "core/SettingsManager.hpp"
+#include <QHash>
 #include <QObject>
 #include <QPair>
+#include <QPointer>
 #include <QProcess>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
 #include <QVector>
+#include <mutex>
 
 class QNetworkAccessManager;
 class QUdpSocket;
@@ -87,14 +90,19 @@ private:
     void clearStaleDarlingProcesses();
     void prepareDarlingPrefixSync();
     void stepDownloadOrUpdateRoblox();
+    bool hasMultipleGpus() const;
 
     SettingsManager *m_settingsMgr = nullptr;
     QProcess *m_gameProc = nullptr;
     QProcess *m_wizardProc = nullptr;
+    QTimer *m_launchWatchdog = nullptr;
+    QPointer<QTimer> m_procMonitorTimer;
     QNetworkAccessManager *m_nam = nullptr;
     QUdpSocket *m_dnsUdp = nullptr;
     quint16 m_dnsPort = 0;
     QString m_dnsUpstreamIp;
+    mutable std::mutex m_dnsCacheMutex;
+    QHash<QString, QByteArray> m_dnsCache;
     bool m_wizardBusy = false;
 
     QString m_cpuModel = "CPU x86_64";

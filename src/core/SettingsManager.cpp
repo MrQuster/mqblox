@@ -271,17 +271,15 @@ QJsonObject SettingsManager::buildEffectiveFflags(QString *errMsg) const {
     fflags["FFlagTaskSchedulerLimitTargetFpsTo2402"] = false;
     fflags["FFlagGameBasicSettingsFramerateCap5"] = true;
 
-    if (m_settings.graphicsBackend == GraphicsBackend::Vulkan) {
-        fflags["FFlagDebugGraphicsPreferVulkan"] = true;
-        fflags["FFlagDebugGraphicsDisableVulkan"] = false;
-        fflags["FFlagDebugGraphicsPreferOpenGL"] = false;
-        fflags["FFlagDebugGraphicsDisableOpenGL"] = true;
-    } else {
-        fflags["FFlagDebugGraphicsPreferOpenGL"] = true;
-        fflags["FFlagDebugGraphicsDisableOpenGL"] = false;
-        fflags["FFlagDebugGraphicsPreferVulkan"] = false;
-        fflags["FFlagDebugGraphicsDisableVulkan"] = true;
-    }
+    // Roblox for macOS Mach-O is built strictly against CGL (OpenGL) and Metal.
+    // Setting FFlagDebugGraphicsDisableOpenGL=true strips Roblox of any working renderer in Darling,
+    // causing an immediate unhandled exception or eternal launch hang.
+    // In Darling, whether using native Mesa (radeonsi/iris/nouveau/nvidia) or host Zink (OpenGL over Vulkan),
+    // the macOS client process MUST ALWAYS use OpenGL.
+    fflags["FFlagDebugGraphicsPreferOpenGL"] = true;
+    fflags["FFlagDebugGraphicsDisableOpenGL"] = false;
+    fflags["FFlagDebugGraphicsPreferVulkan"] = false;
+    fflags["FFlagDebugGraphicsDisableVulkan"] = true;
 
     if (m_settings.lighting == LightingMode::Voxel) {
         // Modern Roblox (0.744+) removed legacy Voxel shaders, causing missing shader crashes.
@@ -341,6 +339,10 @@ QJsonObject SettingsManager::buildEffectiveFflags(QString *errMsg) const {
         fflags["DFIntHttpCacheCleanMinFilesRequired"] = 300;
         fflags["FIntRenderLocalLightUpdatesMax"] = 1;
         fflags["DFIntTextureCompositorActiveJobs"] = 1;
+        fflags["FIntFRMMinGrassDistance"] = 0;
+        fflags["FIntFRMMaxGrassDistance"] = 0;
+        fflags["FIntRenderGrassDetailStrands"] = 0;
+        fflags["DFIntCSGLevelOfDetailSwitchingDistance"] = 0;
     }
 
     if (m_settings.unlockInfiniteZoom) {

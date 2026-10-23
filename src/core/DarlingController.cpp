@@ -124,6 +124,18 @@ DarlingController::DarlingController(SettingsManager *settingsMgr, QObject *pare
     m_cpuThreads = std::max(2, QThread::idealThreadCount());
     m_vramBytes = readSysfsVramBytes();
 
+    m_launchWatchdog = new QTimer(this);
+    m_launchWatchdog->setSingleShot(true);
+    connect(m_launchWatchdog, &QTimer::timeout, this, [this]() {
+        if (!isRobloxProcessAlive() && m_gameProc && m_gameProc->state() != QProcess::NotRunning) {
+            emit logGenerated("[⚠️] Превышено время ожидания запуска Darling / RobloxPlayer (35 с). Сброс зависшего префикса...");
+            emit toastRequested("⚠️ Превышено время запуска Roblox (35 с). Префикс сброшен.");
+            m_gameProc->kill();
+            clearStaleDarlingProcesses();
+            emit gameFinished(124, true);
+        }
+    });
+
     connect(m_gameProc, &QProcess::readyReadStandardOutput, this, [this]() {
         handleProcessOutput(QString::fromUtf8(m_gameProc->readAllStandardOutput()));
     });
@@ -134,16 +146,15 @@ DarlingController::DarlingController(SettingsManager *settingsMgr, QObject *pare
         emit gameStarted();
     });
     connect(m_gameProc, &QProcess::finished, this, [this](int exitCode, QProcess::ExitStatus status) {
-        QFile f("/tmp/m_gameProc.log");
-        if (f.open(QIODevice::WriteOnly | QIODevice::Append)) {
-            f.write(QString("[gameProc finished] exitCode=%1 status=%2 alive=%3\n")
-                        .arg(exitCode)
-                        .arg(static_cast<int>(status))
-                        .arg(isRobloxProcessAlive())
-                        .toUtf8());
+        if (m_launchWatchdog && m_launchWatchdog->isActive()) {
+            m_launchWatchdog->stop();
         }
 
         auto finishSession = [this, exitCode, status]() {
+            if (m_procMonitorTimer) {
+                m_procMonitorTimer->stop();
+                m_procMonitorTimer->deleteLater();
+            }
             clearStaleDarlingProcesses();
             stopDnsForwarder();
             m_inActivePlace = false;
@@ -153,17 +164,21 @@ DarlingController::DarlingController(SettingsManager *settingsMgr, QObject *pare
         };
 
         if (isRobloxProcessAlive()) {
-            // If the wrapper process exited but RobloxPlayer is still running inside Darling,
-            // keep the DNS forwarder alive and monitor RobloxPlayer until termination.
-            auto *timer = new QTimer(this);
-            connect(timer, &QTimer::timeout, this, [this, timer, finishSession]() {
+            if (m_procMonitorTimer) {
+                m_procMonitorTimer->stop();
+                m_procMonitorTimer->deleteLater();
+            }
+            m_procMonitorTimer = new QTimer(this);
+            connect(m_procMonitorTimer, &QTimer::timeout, this, [this, finishSession]() {
                 if (!isRobloxProcessAlive()) {
-                    timer->stop();
-                    timer->deleteLater();
+                    if (m_procMonitorTimer) {
+                        m_procMonitorTimer->stop();
+                        m_procMonitorTimer->deleteLater();
+                    }
                     finishSession();
                 }
             });
-            timer->start(1000);
+            m_procMonitorTimer->start(1000);
         } else {
             finishSession();
         }
@@ -204,6 +219,10 @@ void DarlingController::detectHardwareAsync() {
     }
 
     auto *proc = new QProcess(this);
+    connect(proc, &QProcess::errorOccurred, this, [this, proc](QProcess::ProcessError) {
+        proc->deleteLater();
+        emit hardwareDetected();
+    });
     connect(proc, &QProcess::finished, this, [this, proc](int, QProcess::ExitStatus) {
         for (const QString &line : QString::fromUtf8(proc->readAllStandardOutput()).split('\n')) {
             if (line.contains("VGA") || line.contains("3D controller") || line.contains("Display controller")) {
@@ -426,11 +445,17 @@ QString DarlingController::buildDarlingLaunchScript(const QString &targetUri) co
         envExports << "export __GLX_VENDOR_LIBRARY_NAME=nvidia";
         envExports << "export __VK_LAYER_NV_optimus=NVIDIA_only";
     } else if (m_gpuVendor == "amd") {
-        envExports << "export DRI_PRIME=1";
-        envExports << "export mesa_glthread=true";
+        if (hasMultipleGpus()) {
+            envExports << "export DRI_PRIME=1";
+        }
+        if (m_cpuThreads >= 6) {
+            envExports << "export mesa_glthread=true";
+        }
         envExports << "export RADV_PERFTEST=aco";
     } else if (m_gpuVendor == "intel") {
-        envExports << "export mesa_glthread=true";
+        if (m_cpuThreads >= 6) {
+            envExports << "export mesa_glthread=true";
+        }
     }
 
     if (backendStr == "vulkan") {
@@ -449,6 +474,17 @@ QString DarlingController::buildDarlingLaunchScript(const QString &targetUri) co
 
 QStringList DarlingController::buildFlatpakArgs(const QString &targetUri) const {
     return {"shell", "/bin/bash", "-c", buildDarlingLaunchScript(targetUri)};
+}
+
+bool DarlingController::hasMultipleGpus() const {
+    int count = 0;
+    QDir drmDir("/sys/class/drm");
+    for (const QString &entry : drmDir.entryList({"card[0-9]*"}, QDir::Dirs)) {
+        if (!entry.contains('-')) {
+            count++;
+        }
+    }
+    return count > 1;
 }
 
 bool DarlingController::isTelemetryDomain(const QString &domain) {
@@ -620,47 +656,65 @@ void DarlingController::startDnsForwarder() {
                 continue;
             }
 
+            {
+                std::lock_guard<std::mutex> lk(m_dnsCacheMutex);
+                auto it = m_dnsCache.find(domain);
+                if (it != m_dnsCache.end()) {
+                    QByteArray cached = it.value();
+                    if (cached.size() >= 2) {
+                        cached[0] = query[0];
+                        cached[1] = query[1];
+                        m_dnsUdp->writeDatagram(cached, senderHost, senderPort);
+                        continue;
+                    }
+                }
+            }
+
             const QString upstream = m_dnsUpstreamIp;
             QPointer<QUdpSocket> udpGuard(m_dnsUdp);
-            (void)QtConcurrent::run([query, upstream, senderHost, senderPort, udpGuard]() {
+            (void)QtConcurrent::run([this, query, domain, upstream, senderHost, senderPort, udpGuard]() {
+                auto cacheAndSend = [this, domain, udpGuard, senderHost, senderPort](const QByteArray &payload) {
+                    if (payload.isEmpty() || !udpGuard) return;
+                    if (!domain.isEmpty()) {
+                        std::lock_guard<std::mutex> lk(m_dnsCacheMutex);
+                        if (m_dnsCache.size() > 500) m_dnsCache.clear();
+                        m_dnsCache[domain] = payload;
+                    }
+                    QMetaObject::invokeMethod(udpGuard, [udpGuard, payload, senderHost, senderPort]() {
+                        if (udpGuard) udpGuard->writeDatagram(payload, senderHost, senderPort);
+                    }, Qt::QueuedConnection);
+                };
+
                 // If System DNS or if DoT fails, resolve locally via host glibc
                 if (upstream.isEmpty()) {
-                    const QByteArray payload = buildHostDnsResponse(query);
-                    if (!payload.isEmpty() && udpGuard) {
-                        QMetaObject::invokeMethod(udpGuard, [udpGuard, payload, senderHost, senderPort]() {
-                            if (udpGuard) udpGuard->writeDatagram(payload, senderHost, senderPort);
-                        }, Qt::QueuedConnection);
-                    }
+                    cacheAndSend(buildHostDnsResponse(query));
                     return;
                 }
 
-                // Attempt DNS-over-TLS with fast fallback to host DNS
+                // Attempt DNS-over-TLS with fast fallback to host DNS (120ms max)
                 QSslSocket tls;
                 tls.setPeerVerifyMode(QSslSocket::VerifyNone);
                 tls.connectToHostEncrypted(upstream, 853);
-                if (tls.waitForEncrypted(250)) {
+                if (tls.waitForEncrypted(120)) {
                     QByteArray framed;
                     const quint16 qlen = static_cast<quint16>(query.size());
                     framed.append(static_cast<char>((qlen >> 8) & 0xFF));
                     framed.append(static_cast<char>(qlen & 0xFF));
                     framed.append(query);
                     tls.write(framed);
-                    if (tls.waitForBytesWritten(250)) {
+                    if (tls.waitForBytesWritten(120)) {
                         QByteArray respBuf;
-                        while (respBuf.size() < 2 && tls.waitForReadyRead(250)) {
+                        while (respBuf.size() < 2 && tls.waitForReadyRead(120)) {
                             respBuf.append(tls.readAll());
                         }
                         if (respBuf.size() >= 2) {
                             const int rlen = (static_cast<unsigned char>(respBuf[0]) << 8) |
                                              static_cast<unsigned char>(respBuf[1]);
-                            while (respBuf.size() < 2 + rlen && tls.waitForReadyRead(250)) {
+                            while (respBuf.size() < 2 + rlen && tls.waitForReadyRead(120)) {
                                 respBuf.append(tls.readAll());
                             }
-                            if (respBuf.size() >= 2 + rlen && udpGuard) {
-                                const QByteArray payload = respBuf.mid(2, rlen);
-                                QMetaObject::invokeMethod(udpGuard, [udpGuard, payload, senderHost, senderPort]() {
-                                    if (udpGuard) udpGuard->writeDatagram(payload, senderHost, senderPort);
-                                }, Qt::QueuedConnection);
+                            if (respBuf.size() >= 2 + rlen) {
+                                cacheAndSend(respBuf.mid(2, rlen));
                                 return;
                             }
                         }
@@ -668,12 +722,7 @@ void DarlingController::startDnsForwarder() {
                 }
 
                 // DoT failed or timed out: fall back immediately to host resolver
-                const QByteArray payload = buildHostDnsResponse(query);
-                if (!payload.isEmpty() && udpGuard) {
-                    QMetaObject::invokeMethod(udpGuard, [udpGuard, payload, senderHost, senderPort]() {
-                        if (udpGuard) udpGuard->writeDatagram(payload, senderHost, senderPort);
-                    }, Qt::QueuedConnection);
-                }
+                cacheAndSend(buildHostDnsResponse(query));
             });
         }
     });
@@ -681,6 +730,10 @@ void DarlingController::startDnsForwarder() {
 
 void DarlingController::stopDnsForwarder() {
     m_dnsPort = 0;
+    {
+        std::lock_guard<std::mutex> lk(m_dnsCacheMutex);
+        m_dnsCache.clear();
+    }
     if (m_dnsUdp) {
         m_dnsUdp->close();
         m_dnsUdp->deleteLater();
@@ -758,12 +811,15 @@ void DarlingController::clearStaleDarlingProcesses() {
         if (!commFile.open(QIODevice::ReadOnly)) continue;
         const QString comm = QString::fromUtf8(commFile.readAll()).trimmed();
         bool isOurBinary = (comm == "RobloxPlayer" || comm == "RobloxCrashHandler" ||
-                            comm == "darlingserver" || comm == "darling");
-        if (!isOurBinary && comm == "bwrap") {
+                            comm == "darlingserver" || comm == "darling" ||
+                            comm == "launchd" || comm == "mldr" || comm == "Main");
+        if (!isOurBinary && (comm == "bwrap" || comm == "sh" || comm == "bash")) {
             // Orphaned MacOBlox Flatpak sandboxes keep a dead darlingserver's prefix busy.
             QFile cmdFile(procPath + "/cmdline");
-            isOurBinary = cmdFile.open(QIODevice::ReadOnly) &&
-                          cmdFile.readAll().contains("darling-noroot.so");
+            if (cmdFile.open(QIODevice::ReadOnly)) {
+                const QByteArray cmd = cmdFile.readAll();
+                isOurBinary = cmd.contains("darling") || cmd.contains("MacOBlox");
+            }
         }
         if (!isOurBinary) continue;
 
@@ -778,6 +834,10 @@ void DarlingController::clearStaleDarlingProcesses() {
 void DarlingController::launchRoblox(const QString &customUri) {
     m_manualStop = false;
     m_inActivePlace = false;
+    if (m_procMonitorTimer) {
+        m_procMonitorTimer->stop();
+        m_procMonitorTimer->deleteLater();
+    }
     m_settingsMgr->saveAll();
 
     ensureRobloxExecPermissions(m_settingsMgr->robloxAppDir());
@@ -823,21 +883,34 @@ void DarlingController::launchRoblox(const QString &customUri) {
     const QStringList args = buildFlatpakArgs(targetUri);
     emit logGenerated("[🚀] Запуск MacOBlox (Darling): " + darlingBin + " " + args.join(' '));
     m_gameProc->start(darlingBin, args);
+    m_gameProc->closeWriteChannel();
+    if (m_launchWatchdog) {
+        m_launchWatchdog->start(35000);
+    }
 }
 
 void DarlingController::stopRobloxAsync() {
     m_manualStop = true;
     m_inActivePlace = false;
+    if (m_launchWatchdog && m_launchWatchdog->isActive()) {
+        m_launchWatchdog->stop();
+    }
+    if (m_procMonitorTimer) {
+        m_procMonitorTimer->stop();
+        m_procMonitorTimer->deleteLater();
+    }
     stopDnsForwarder();
 
     (void)QtConcurrent::run([this]() {
         clearStaleDarlingProcesses();
         QMetaObject::invokeMethod(this, [this]() {
-            if (isGameRunning()) {
+            if (m_gameProc && m_gameProc->state() != QProcess::NotRunning) {
                 m_gameProc->terminate();
-                if (!m_gameProc->waitForFinished(1200)) {
-                    m_gameProc->kill();
-                }
+                QTimer::singleShot(1200, m_gameProc, [this]() {
+                    if (m_gameProc && m_gameProc->state() != QProcess::NotRunning) {
+                        m_gameProc->kill();
+                    }
+                });
             }
             emit logGenerated("[🛑] Сессия RobloxPlayer внутри Darling завершена.");
         }, Qt::QueuedConnection);
@@ -995,6 +1068,13 @@ void DarlingController::runSetupOrUpdateWizardAsync() {
     wizEnv.insert("MACOBLOX_BUILD_DIR", m_settingsMgr->macobloxDataDir());
     m_wizardProc->setProcessEnvironment(wizEnv);
 
+    connect(m_wizardProc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
+        m_wizardBusy = false;
+        const QString msg = "Не удалось запустить сборку шимов (ошибка запуска процесса)";
+        m_recentErrors.append(msg);
+        emit wizardFinished(false, msg);
+    });
+
     connect(m_wizardProc, &QProcess::finished, this, [this](int code, QProcess::ExitStatus) {
         const QString out = QString::fromUtf8(m_wizardProc->readAllStandardOutput()).trimmed();
         if (!out.isEmpty()) emit logGenerated(out);
@@ -1009,8 +1089,10 @@ void DarlingController::runSetupOrUpdateWizardAsync() {
         }
 
         emit wizardProgress(40, "Подготовка префикса Darling и запрос версии Roblox MacPlayer...");
-        prepareDarlingPrefixSync();
-        stepDownloadOrUpdateRoblox();
+        (void)QtConcurrent::run([this]() {
+            prepareDarlingPrefixSync();
+            QMetaObject::invokeMethod(this, &DarlingController::stepDownloadOrUpdateRoblox, Qt::QueuedConnection);
+        });
     });
 
     m_wizardProc->start("/bin/bash", {buildScript});
@@ -1154,9 +1236,8 @@ void DarlingController::stepDownloadOrUpdateRoblox() {
 }
 
 void DarlingController::handleProcessOutput(const QString &chunk) {
-    QFile f("/tmp/m_gameProc.log");
-    if (f.open(QIODevice::WriteOnly | QIODevice::Append)) {
-        f.write(chunk.toUtf8());
+    if (m_launchWatchdog && m_launchWatchdog->isActive()) {
+        m_launchWatchdog->stop();
     }
     const QStringList &markers = m_settingsMgr->settings().leaveMarkers;
     qint64 now = QDateTime::currentMSecsSinceEpoch();

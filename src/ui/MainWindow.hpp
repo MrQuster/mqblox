@@ -31,6 +31,7 @@ protected:
     void mousePressEvent(QMouseEvent *e) override;
     void mouseMoveEvent(QMouseEvent *e) override;
     void closeEvent(QCloseEvent *e) override;
+    void changeEvent(QEvent *e) override;
 
 private:
     Qt::Edges detectResizeEdges(const QPointF &pos) const;
@@ -221,6 +222,7 @@ private:
     QVariantAnimation *m_sidebarAnim = nullptr;
     QTimer *m_hoverTimer = nullptr;
     QTimer *m_autosaveTimer = nullptr;
+    QTimer *m_watchdogTimer = nullptr;
     QSystemTrayIcon *m_trayIcon = nullptr;
 
     QQueue<QString> m_toastQueue;
@@ -229,6 +231,8 @@ private:
     bool m_sidebarExpanded = true;
     bool m_pendingHover = true;
     bool m_forceQuit = false;
+    int m_consecutiveCrashCount = 0;
+    qint64 m_lastCrashTimestamp = 0;
 };
 
 } // namespace mqblox

@@ -361,10 +361,11 @@ private slots:
         QFile csf(robloxDir + "/Contents/MacOS/ClientSettings/ClientAppSettings.json");
         QVERIFY(csf.open(QIODevice::ReadOnly));
         QJsonObject root = QJsonDocument::fromJson(csf.readAll()).object();
-        QCOMPARE(root.value("FFlagDebugGraphicsPreferVulkan").toBool(), true);
-        QCOMPARE(root.value("FFlagDebugGraphicsDisableVulkan").toBool(), false);
-        QCOMPARE(root.value("FFlagDebugGraphicsPreferOpenGL").toBool(), false);
-        QCOMPARE(root.value("FFlagDebugGraphicsDisableOpenGL").toBool(), true);
+        // Roblox Mac Mach-O always relies on OpenGL (or host Zink OpenGL translation)
+        QCOMPARE(root.value("FFlagDebugGraphicsPreferOpenGL").toBool(), true);
+        QCOMPARE(root.value("FFlagDebugGraphicsDisableOpenGL").toBool(), false);
+        QCOMPARE(root.value("FFlagDebugGraphicsPreferVulkan").toBool(), false);
+        QCOMPARE(root.value("FFlagDebugGraphicsDisableVulkan").toBool(), true);
 
         // Verify launch script exports MACOBLOX_GRAPHICS_BACKEND='vulkan' and Zink driver override
         script = ctrl.buildDarlingLaunchScript();

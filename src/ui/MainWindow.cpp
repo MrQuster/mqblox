@@ -193,8 +193,23 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
         raise();
         activateWindow();
         if (crashed && m_settingsMgr.settings().autoReconnectOnCrash) {
-            enqueueToast(tr("⚠️ Обнаружен сбой клиента! Авто-перезаход через 3 с..."));
-            QTimer::singleShot(3000, this, [this]() { m_darlingCtrl->launchRoblox(); });
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - m_lastCrashTimestamp < 45000) {
+                m_consecutiveCrashCount++;
+            } else {
+                m_consecutiveCrashCount = 1;
+            }
+            m_lastCrashTimestamp = now;
+
+            if (m_consecutiveCrashCount > 3) {
+                m_consecutiveCrashCount = 0;
+                enqueueToast(tr("🛑 Слишком много сбоев подряд. Авто-перезаход отменён во избежание зависания ПК."));
+            } else {
+                enqueueToast(tr("⚠️ Обнаружен сбой клиента (попытка %1/3)! Перезаход через 3 с...").arg(m_consecutiveCrashCount));
+                QTimer::singleShot(3000, this, [this]() { m_darlingCtrl->launchRoblox(); });
+            }
+        } else if (!crashed) {
+            m_consecutiveCrashCount = 0;
         }
     });
     connect(m_darlingCtrl, &DarlingController::accountSwitchCompleted, this, [this](const QString &accId) {
@@ -221,9 +236,9 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
 
     m_darlingCtrl->detectHardwareAsync();
 
-    auto *watchdog = new QTimer(this);
-    connect(watchdog, &QTimer::timeout, this, [this]() { runWatchdogTick(); });
-    watchdog->start(3000);
+    m_watchdogTimer = new QTimer(this);
+    connect(m_watchdogTimer, &QTimer::timeout, this, [this]() { runWatchdogTick(); });
+    m_watchdogTimer->start(3000);
     runWatchdogTick();
 
     if (!m_launchUri.isEmpty()) {
@@ -287,6 +302,27 @@ void MainWindow::closeEvent(QCloseEvent *e) {
     if (m_trayIcon) m_trayIcon->hide();
     e->accept();
     QApplication::quit();
+}
+
+void MainWindow::changeEvent(QEvent *e) {
+    if (e->type() == QEvent::WindowStateChange) {
+        if (isMinimized() || !isVisible()) {
+            if (m_watchdogTimer && m_watchdogTimer->isActive()) {
+                m_watchdogTimer->stop();
+            }
+            if (m_rootCosmos) {
+                m_rootCosmos->setInGamePaused(true);
+            }
+        } else {
+            if (m_watchdogTimer && !m_watchdogTimer->isActive()) {
+                m_watchdogTimer->start(4000);
+            }
+            if (m_rootCosmos && (!m_darlingCtrl || !m_darlingCtrl->isGameRunning())) {
+                m_rootCosmos->setInGamePaused(false);
+            }
+        }
+    }
+    QMainWindow::changeEvent(e);
 }
 
 void MainWindow::initTrayAndShortcuts() {

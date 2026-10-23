@@ -1,7 +1,7 @@
 # Maintainer: MrQuster <https://github.com/MrQuster>
 # Upstream MacOBlox Author: Narezany (narezy) <https://github.com/narezy/MacOBlox>
 pkgname=mqblox
-pkgver=36.0.0
+pkgver=36.4.0
 pkgrel=1
 pkgdesc="HyperOS 4 Liquid Glass Qt6 launcher for the macOS Roblox client on Linux via Darling (MacOBlox fork)"
 arch=('x86_64')
