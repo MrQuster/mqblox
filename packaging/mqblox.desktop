@@ -11,6 +11,6 @@ Icon=mqblox
 Terminal=false
 Categories=Game;
 Keywords=roblox;macoblox;darling;mqblox;
-StartupWMClass=RobloxPlayer
+StartupWMClass=mqblox
 StartupNotify=true
 MimeType=x-scheme-handler/roblox;x-scheme-handler/roblox-player;

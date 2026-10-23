@@ -40,6 +40,7 @@ public:
     void launchRoblox(const QString &customUri = {});
     void stopRobloxAsync();
     void restartDarlingAsync();
+    void clearStaleDarlingProcesses();
     void switchAccountSlotAsync(const QString &targetAccountId);
     void saveCurrentSessionToSlotAsync();
 
@@ -87,7 +88,6 @@ private:
     void handleProcessOutput(const QString &chunk);
     void startDnsForwarder();
     void stopDnsForwarder();
-    void clearStaleDarlingProcesses();
     void prepareDarlingPrefixSync();
     void stepDownloadOrUpdateRoblox();
     bool hasMultipleGpus() const;

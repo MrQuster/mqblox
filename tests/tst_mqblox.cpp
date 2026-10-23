@@ -507,6 +507,36 @@ private slots:
         QDir(fwDir).removeRecursively();
     }
 
+    void testStaleSocketAndPidCleanup() {
+        SettingsManager mgr;
+        const QString prefixDir = mgr.darlingPrefixDir();
+        QDir().mkpath(prefixDir);
+        const QString pidFile = prefixDir + "/.init.pid";
+        const QString sockFile = prefixDir + "/.darlingserver.sock";
+
+        {
+            QFile f(pidFile);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("12345\n");
+            f.close();
+        }
+        {
+            QFile f(sockFile);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("dummy-socket\n");
+            f.close();
+        }
+
+        QVERIFY(QFile::exists(pidFile));
+        QVERIFY(QFile::exists(sockFile));
+
+        DarlingController ctrl(&mgr);
+        ctrl.clearStaleDarlingProcesses();
+
+        QVERIFY(!QFile::exists(pidFile));
+        QVERIFY(!QFile::exists(sockFile));
+    }
+
 private:
     QTemporaryDir m_tmpDir;
 };

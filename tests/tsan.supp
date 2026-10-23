@@ -1,0 +1,9 @@
+# ThreadSanitizer suppressions for uninstrumented system Qt6/DBus/Wayland runtime libraries
+race:libQt6Core.so
+race:libQt6DBus.so
+race:libQt6Test.so
+race:libdbus-1.so
+race:libwayland-client.so
+race:QWaitCondition
+deadlock:libdbus-1.so
+thread:QThread::start

@@ -825,9 +825,27 @@ void DarlingController::clearStaleDarlingProcesses() {
 
         ::kill(pid, SIGKILL);
     }
-    if (!myPrefix.isEmpty()) {
-        QFile::remove(myPrefix + "/.init.pid");
-        QFile::remove(myPrefix + "/.darlingserver.sock");
+    QStringList candidatePrefixes;
+    if (!myPrefix.isEmpty()) candidatePrefixes << myPrefix;
+    candidatePrefixes << (QDir::homePath() + "/.darling");
+    const QString xdgData = qEnvironmentVariable("XDG_DATA_HOME");
+    const QString baseData = !xdgData.trimmed().isEmpty() ? xdgData.trimmed() : (QDir::homePath() + "/.local/share");
+    candidatePrefixes << (baseData + "/darling");
+    candidatePrefixes << (QDir::homePath() + "/.var/app/xyz.narez.MacOBlox/data/darling");
+
+    for (const QString &pfx : candidatePrefixes) {
+        if (!pfx.isEmpty() && QDir(pfx).exists()) {
+            QFile::remove(pfx + "/.init.pid");
+            QFile::remove(pfx + "/.darlingserver.sock");
+        }
+    }
+    // Clean up any stale darling sockets in /tmp owned by current user
+    QDir tmpDir("/tmp");
+    for (const QString &entry : tmpDir.entryList({".darlingserver*", ".init.pid*"}, QDir::Files | QDir::System)) {
+        const QString p = tmpDir.filePath(entry);
+        if (QFileInfo(p).ownerId() == myUid) {
+            QFile::remove(p);
+        }
     }
 }
 
