@@ -49,6 +49,7 @@ public:
 
     EnvironmentStatus checkEnvironment() const;
     QString collectDiagnosticsReport() const;
+    QString readLatestRobloxLogTail(int maxLines = 200) const;
     bool isSignedIn() const;
     void logoutAsync();
 
@@ -95,6 +96,8 @@ private:
     SettingsManager *m_settingsMgr = nullptr;
     QProcess *m_gameProc = nullptr;
     QProcess *m_wizardProc = nullptr;
+    QPointer<QProcess> m_glxProc;
+    QPointer<QProcess> m_lspciProc;
     QTimer *m_launchWatchdog = nullptr;
     QPointer<QTimer> m_procMonitorTimer;
     QNetworkAccessManager *m_nam = nullptr;
@@ -116,6 +119,18 @@ private:
     qint64 m_lastTeleportMs = 0;
     qint64 m_joinTimestampMs = 0;
     QStringList m_recentErrors;
+
+    QDateTime m_lastLaunchTime;
+    QDateTime m_lastExitTime;
+    int m_lastExitCode = 0;
+    QProcess::ExitStatus m_lastExitStatus = QProcess::NormalExit;
+    bool m_lastCrashed = false;
+    QStringList m_recentDarlingLog;
+    QString m_mesaVersion;
+    QString m_glRenderer;
+    QString m_glCoreVersion;
+    bool m_cpuAvx = false;
+    bool m_cpuAvx2 = false;
 };
 
 } // namespace mqblox

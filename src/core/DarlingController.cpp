@@ -18,8 +18,10 @@
 #include <QSslSocket>
 #include <QStandardPaths>
 #include <QSysInfo>
+#include <QTextStream>
 #include <QThread>
 #include <QTimer>
+#include <QTimeZone>
 #include <QUdpSocket>
 #include <QtConcurrent>
 #include <algorithm>
@@ -124,6 +126,19 @@ DarlingController::DarlingController(SettingsManager *settingsMgr, QObject *pare
     m_cpuThreads = std::max(2, QThread::idealThreadCount());
     m_vramBytes = readSysfsVramBytes();
 
+    QFile cpuInfo("/proc/cpuinfo");
+    if (cpuInfo.open(QIODevice::ReadOnly)) {
+        for (const QString &line : QString::fromUtf8(cpuInfo.readAll()).split('\n')) {
+            if (line.startsWith("model name") && m_cpuModel == "CPU x86_64") {
+                m_cpuModel = line.section(':', 1).trimmed();
+            } else if (line.startsWith("flags")) {
+                const QStringList flags = line.section(':', 1).trimmed().split(' ', Qt::SkipEmptyParts);
+                m_cpuAvx = flags.contains("avx");
+                m_cpuAvx2 = flags.contains("avx2");
+            }
+        }
+    }
+
     m_launchWatchdog = new QTimer(this);
     m_launchWatchdog->setSingleShot(true);
     connect(m_launchWatchdog, &QTimer::timeout, this, [this]() {
@@ -155,10 +170,14 @@ DarlingController::DarlingController(SettingsManager *settingsMgr, QObject *pare
                 m_procMonitorTimer->stop();
                 m_procMonitorTimer->deleteLater();
             }
+            m_lastExitTime = QDateTime::currentDateTime();
+            m_lastExitCode = exitCode;
+            m_lastExitStatus = status;
             clearStaleDarlingProcesses();
             stopDnsForwarder();
             m_inActivePlace = false;
             bool crashed = (!m_manualStop && (status == QProcess::CrashExit || exitCode != 0));
+            m_lastCrashed = crashed;
             emit gameFinished(exitCode, crashed);
             emit sessionStateChanged();
         };
@@ -187,6 +206,14 @@ DarlingController::DarlingController(SettingsManager *settingsMgr, QObject *pare
 
 DarlingController::~DarlingController() {
     stopDnsForwarder();
+    if (m_glxProc && m_glxProc->state() != QProcess::NotRunning) {
+        m_glxProc->kill();
+        m_glxProc->waitForFinished(50);
+    }
+    if (m_lspciProc && m_lspciProc->state() != QProcess::NotRunning) {
+        m_lspciProc->kill();
+        m_lspciProc->waitForFinished(50);
+    }
     if (m_gameProc && m_gameProc->state() != QProcess::NotRunning) {
         m_gameProc->terminate();
         m_gameProc->waitForFinished(1000);
@@ -200,7 +227,10 @@ void DarlingController::detectHardwareAsync() {
         for (const QString &line : QString::fromUtf8(f.readAll()).split('\n')) {
             if (line.startsWith("model name")) {
                 m_cpuModel = line.section(':', 1).trimmed();
-                break;
+            } else if (line.startsWith("flags")) {
+                const QStringList flags = line.section(':', 1).trimmed().split(' ', Qt::SkipEmptyParts);
+                m_cpuAvx = flags.contains("avx");
+                m_cpuAvx2 = flags.contains("avx2");
             }
         }
     }
@@ -218,26 +248,56 @@ void DarlingController::detectHardwareAsync() {
         }
     }
 
-    auto *proc = new QProcess(this);
-    connect(proc, &QProcess::errorOccurred, this, [this, proc](QProcess::ProcessError) {
-        proc->deleteLater();
-        emit hardwareDetected();
-    });
-    connect(proc, &QProcess::finished, this, [this, proc](int, QProcess::ExitStatus) {
-        for (const QString &line : QString::fromUtf8(proc->readAllStandardOutput()).split('\n')) {
-            if (line.contains("VGA") || line.contains("3D controller") || line.contains("Display controller")) {
-                m_gpuModel = line.section(':', 2).trimmed();
-                QString low = m_gpuModel.toLower();
-                if (low.contains("nvidia") || low.contains("geforce")) m_gpuVendor = "nvidia";
-                else if (low.contains("amd") || low.contains("radeon") || low.contains("ati")) m_gpuVendor = "amd";
-                else if (low.contains("intel")) m_gpuVendor = "intel";
-                break;
+    if (m_glxProc && m_glxProc->state() != QProcess::NotRunning) {
+        m_glxProc->kill();
+    }
+    m_glxProc = new QProcess(this);
+    connect(m_glxProc, &QProcess::finished, this, [this](int exitCode, QProcess::ExitStatus) {
+        if (exitCode == 0 && m_glxProc) {
+            const QString glxOut = QString::fromUtf8(m_glxProc->readAllStandardOutput());
+            for (const QString &rawLine : glxOut.split('\n')) {
+                const QString line = rawLine.trimmed();
+                if (line.startsWith("OpenGL renderer string:")) {
+                    m_glRenderer = line.section(':', 1).trimmed();
+                } else if (line.startsWith("OpenGL core profile version string:")) {
+                    m_glCoreVersion = line.section(':', 1).trimmed();
+                } else if (line.startsWith("Version:") && m_mesaVersion.isEmpty()) {
+                    m_mesaVersion = line.section(':', 1).trimmed();
+                }
             }
         }
-        proc->deleteLater();
+        if (m_glxProc) m_glxProc->deleteLater();
+    });
+    connect(m_glxProc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
+        if (m_glxProc) m_glxProc->deleteLater();
+    });
+    m_glxProc->start("glxinfo", {"-B"});
+
+    if (m_lspciProc && m_lspciProc->state() != QProcess::NotRunning) {
+        m_lspciProc->kill();
+    }
+    m_lspciProc = new QProcess(this);
+    connect(m_lspciProc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
+        if (m_lspciProc) m_lspciProc->deleteLater();
         emit hardwareDetected();
     });
-    proc->start("lspci", {});
+    connect(m_lspciProc, &QProcess::finished, this, [this](int, QProcess::ExitStatus) {
+        if (m_lspciProc) {
+            for (const QString &line : QString::fromUtf8(m_lspciProc->readAllStandardOutput()).split('\n')) {
+                if (line.contains("VGA") || line.contains("3D controller") || line.contains("Display controller")) {
+                    m_gpuModel = line.section(':', 2).trimmed();
+                    QString low = m_gpuModel.toLower();
+                    if (low.contains("nvidia") || low.contains("geforce")) m_gpuVendor = "nvidia";
+                    else if (low.contains("amd") || low.contains("radeon") || low.contains("ati")) m_gpuVendor = "amd";
+                    else if (low.contains("intel")) m_gpuVendor = "intel";
+                    break;
+                }
+            }
+            m_lspciProc->deleteLater();
+        }
+        emit hardwareDetected();
+    });
+    m_lspciProc->start("lspci", {});
 }
 
 QString DarlingController::shimSourceDir() const {
@@ -321,17 +381,96 @@ EnvironmentStatus DarlingController::checkEnvironment() const {
     return st;
 }
 
+QString DarlingController::readLatestRobloxLogTail(int maxLines) const {
+    const QString user = qEnvironmentVariable("USER", QDir::homePath().section('/', -1));
+    const QString prefix = m_settingsMgr->darlingPrefixDir();
+    const QString logsDir = prefix + "/Users/" + user + "/Library/Logs/Roblox";
+    QDir dir(logsDir);
+    if (!dir.exists()) {
+        return "(Журнал Roblox не найден: каталог отсутствует)";
+    }
+
+    const QFileInfoList files = dir.entryInfoList({"*_Player_*_last.log", "*.log"},
+                                                  QDir::Files, QDir::Time);
+    if (files.isEmpty()) {
+        return "(Файлы журнала Roblox отсутствуют)";
+    }
+
+    const QString logPath = files.first().absoluteFilePath();
+    QFile f(logPath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return QString("(Не удалось открыть журнал: %1)").arg(logPath);
+    }
+
+    QTextStream in(&f);
+    QStringList allLines;
+    while (!in.atEnd()) {
+        allLines.append(in.readLine());
+    }
+    f.close();
+
+    const int total = static_cast<int>(allLines.size());
+    const int start = std::max(0, total - maxLines);
+    QStringList tail = allLines.mid(start);
+
+    static const QRegularExpression apiKeyRegex(R"(apiKey=[^&\s"']+)");
+    static const QRegularExpression cookieRegex(R"(\.ROBLOSECURITY=[^;\s"']+)");
+    static const QRegularExpression tokenRegex(R"(securityToken=[^&\s"']+)");
+
+    for (QString &line : tail) {
+        line.replace(apiKeyRegex, "apiKey=<REDACTED>");
+        line.replace(cookieRegex, ".ROBLOSECURITY=<REDACTED>");
+        line.replace(tokenRegex, "securityToken=<REDACTED>");
+    }
+
+    return QString("--- Последние %1 строк журнала Roblox (%2) ---\n%3")
+        .arg(tail.size())
+        .arg(files.first().fileName(), tail.join('\n'));
+}
+
 QString DarlingController::collectDiagnosticsReport() const {
     const EnvironmentStatus st = checkEnvironment();
     const AppSettings &s = m_settingsMgr->settings();
     QStringList out;
     out << "=== Отчёт диагностики MqBlox × MacOBlox ===";
-    out << QString("Дата: %1").arg(QDateTime::currentDateTime().toString(Qt::ISODate));
+    out << QString("Дата формирования: %1").arg(QDateTime::currentDateTime().toString(Qt::ISODate));
     out << QString("Версия: MqBlox v36.0 (Schema v%1, MacOBlox Darling Backend)").arg(s.schemaVersion);
+
+    const QString tz = QTimeZone::systemTimeZone().id();
+    if (m_lastLaunchTime.isValid()) {
+        out << QString("Время последнего запуска: %1 (%2)")
+                   .arg(m_lastLaunchTime.toString(Qt::ISODate), tz);
+        if (m_lastExitTime.isValid()) {
+            out << QString("Время завершения/вылета: %1 (%2)")
+                       .arg(m_lastExitTime.toString(Qt::ISODate), tz);
+        }
+        if (m_lastCrashed) {
+            const int sig = (m_lastExitCode > 128) ? (m_lastExitCode - 128) : 0;
+            const QString sigStr = (sig == 11) ? "SIGSEGV (11)" : (sig == 4) ? "SIGILL (4)" : (sig == 6) ? "SIGABRT (6)" : QString::number(sig);
+            out << QString("Статус последнего запуска: 💥 ВЫЛЕТ (код выхода: %1, сигнал: %2)")
+                       .arg(m_lastExitCode).arg(sigStr);
+        } else {
+            out << QString("Статус последнего запуска: 🟢 Завершился штатно (код: %1)")
+                       .arg(m_lastExitCode);
+        }
+    } else {
+        out << "Статус последнего запуска: (Запуск ещё не выполнялся в текущей сессии)";
+    }
+
     out << QString("ОС / Ядро: %1 (%2 %3)")
                .arg(QSysInfo::prettyProductName(), QSysInfo::kernelType(), QSysInfo::kernelVersion());
-    out << QString("Процессор: %1 (%2 потоков)").arg(m_cpuModel).arg(m_cpuThreads);
+    out << QString("Процессор: %1 (%2 потоков, флаги CPU: avx=%3, avx2=%4)")
+               .arg(m_cpuModel)
+               .arg(m_cpuThreads)
+               .arg(m_cpuAvx ? "Да" : "Нет")
+               .arg(m_cpuAvx2 ? "Да" : "Нет");
     out << QString("Видеокарта и VRAM: %1").arg(st.gpuSummary);
+    if (!m_mesaVersion.isEmpty() || !m_glRenderer.isEmpty()) {
+        out << QString("Графика хоста (OpenGL): Mesa %1 | Рендерер: %2 | Core Profile: %3")
+                   .arg(m_mesaVersion.isEmpty() ? "н/д" : m_mesaVersion)
+                   .arg(m_glRenderer.isEmpty() ? m_gpuModel : m_glRenderer)
+                   .arg(m_glCoreVersion.isEmpty() ? "4.1+" : m_glCoreVersion);
+    }
     out << QString("Сессия отображения: %1").arg(st.sessionType);
     out << QString("Darling установлен: %1").arg(st.hasDarling ? "Да" : "Нет");
     out << QString("Инструменты сборки: clang=%1, ld.lld=%2, unzip=%3")
@@ -343,14 +482,27 @@ QString DarlingController::collectDiagnosticsReport() const {
                     st.installedRobloxVersion.isEmpty() ? "н/д" : st.installedRobloxVersion);
     out << QString("Сессия авторизации (Cookies.plist): %1")
                .arg(isSignedIn() ? "🟢 Сессия активна (Cookies.plist сохранён в Darling; токен защищён и не считывается лаунчером)" : "Не авторизована");
-    out << QString("Параметры: Target FPS=%1 | VSyncOff=%2 | MSAA=%3 | Мышь=%4% | DNS=#%5")
+
+    QString dnsDesc;
+    switch (s.dnsProvider) {
+        case 0: dnsDesc = "0 (Системный DNS / прямой)"; break;
+        case 1: dnsDesc = "1 (Quad9 DoT)"; break;
+        case 2: dnsDesc = "2 (Cloudflare DoT)"; break;
+        case 3: dnsDesc = "3 (Google DoT)"; break;
+        case 4: dnsDesc = QString("4 (Свой DoT: %1)").arg(s.dnsCustom); break;
+        default: dnsDesc = QString("%1 (Неизвестно)").arg(s.dnsProvider); break;
+    }
+    out << QString("Параметры: Target FPS=%1 | VSyncOff=%2 | MSAA=%3 | Мышь=%4% | DNS=%5")
                .arg(s.unlimitedFps ? 9999 : s.targetFps)
                .arg(s.vsyncOff ? "Да" : "Нет")
                .arg(static_cast<int>(s.msaa))
                .arg(s.mouseSensitivityPct)
-               .arg(s.dnsProvider);
+               .arg(dnsDesc);
+    out << QString("DNS-прокси MqBlox: %1")
+               .arg(m_dnsPort > 0 ? QString("🟢 Активен на 127.0.0.1:%1 (upstream: %2)").arg(m_dnsPort).arg(m_dnsUpstreamIp) : "⚪ Не запущен");
+
     out << "";
-    out << "--- Последние ошибки и предупреждения ---";
+    out << "--- Последние ошибки и предупреждения лаунчера ---";
     if (m_recentErrors.isEmpty()) {
         out << "(Ошибок не зафиксировано)";
     } else {
@@ -358,6 +510,21 @@ QString DarlingController::collectDiagnosticsReport() const {
             out << "  " + err;
         }
     }
+
+    out << "";
+    out << "--- Последний вывод Darling / RobloxPlayer (консоль) ---";
+    if (m_recentDarlingLog.isEmpty()) {
+        out << "(Вывод консоли пуст)";
+    } else {
+        const int dStart = std::max(0, static_cast<int>(m_recentDarlingLog.size()) - 50);
+        for (int i = dStart; i < m_recentDarlingLog.size(); ++i) {
+            out << "  " + m_recentDarlingLog.at(i);
+        }
+    }
+
+    out << "";
+    out << readLatestRobloxLogTail(200);
+
     return out.join('\n');
 }
 
@@ -833,10 +1000,31 @@ void DarlingController::clearStaleDarlingProcesses() {
     candidatePrefixes << (baseData + "/darling");
     candidatePrefixes << (QDir::homePath() + "/.var/app/xyz.narez.MacOBlox/data/darling");
 
+    auto isPidAlive = [](pid_t p) -> bool {
+        if (p <= 1) return false;
+        return (::kill(p, 0) == 0);
+    };
+
+    auto shouldRemovePidAndSock = [&](const QString &pidFilePath) -> bool {
+        QFile pidFile(pidFilePath);
+        if (!pidFile.exists()) return true;
+        if (pidFile.open(QIODevice::ReadOnly)) {
+            bool ok = false;
+            const pid_t p = static_cast<pid_t>(pidFile.readAll().trimmed().toInt(&ok));
+            if (ok && isPidAlive(p)) {
+                return false; // Process recorded in .init.pid is still running; keep it!
+            }
+        }
+        return true;
+    };
+
     for (const QString &pfx : candidatePrefixes) {
         if (!pfx.isEmpty() && QDir(pfx).exists()) {
-            QFile::remove(pfx + "/.init.pid");
-            QFile::remove(pfx + "/.darlingserver.sock");
+            const QString pidPath = pfx + "/.init.pid";
+            if (shouldRemovePidAndSock(pidPath)) {
+                QFile::remove(pidPath);
+                QFile::remove(pfx + "/.darlingserver.sock");
+            }
         }
     }
     // Clean up any stale darling sockets in /tmp owned by current user
@@ -844,7 +1032,13 @@ void DarlingController::clearStaleDarlingProcesses() {
     for (const QString &entry : tmpDir.entryList({".darlingserver*", ".init.pid*"}, QDir::Files | QDir::System)) {
         const QString p = tmpDir.filePath(entry);
         if (QFileInfo(p).ownerId() == myUid) {
-            QFile::remove(p);
+            if (entry.startsWith(".init.pid")) {
+                if (shouldRemovePidAndSock(p)) {
+                    QFile::remove(p);
+                }
+            } else {
+                QFile::remove(p);
+            }
         }
     }
 }
@@ -852,6 +1046,11 @@ void DarlingController::clearStaleDarlingProcesses() {
 void DarlingController::launchRoblox(const QString &customUri) {
     m_manualStop = false;
     m_inActivePlace = false;
+    m_lastLaunchTime = QDateTime::currentDateTime();
+    m_lastExitTime = QDateTime();
+    m_lastExitCode = 0;
+    m_lastCrashed = false;
+    m_recentDarlingLog.clear();
     if (m_procMonitorTimer) {
         m_procMonitorTimer->stop();
         m_procMonitorTimer->deleteLater();
@@ -1267,6 +1466,10 @@ void DarlingController::handleProcessOutput(const QString &chunk) {
         if (line.contains("ROBLOSECURITY", Qt::CaseInsensitive) ||
             line.contains("Bearer ", Qt::CaseInsensitive)) {
             continue;
+        }
+        m_recentDarlingLog.append(line);
+        while (m_recentDarlingLog.size() > 200) {
+            m_recentDarlingLog.removeFirst();
         }
         const bool isBenignNoise =
             line.contains("RobloxPlayerInstaller") ||
