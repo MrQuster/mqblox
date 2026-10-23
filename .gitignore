@@ -1,5 +1,9 @@
 build/
 shims/build/
+pkg/
+pkg-cmake-build/
+src/pkg-cmake-build/
+*.pkg.tar*
 *.o
 *.a
 *.so

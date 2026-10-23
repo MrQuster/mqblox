@@ -1,0 +1,16 @@
+name: Предложить улучшение / Feature Request
+description: Предложить новую функцию интерфейса или диагностический инструмент / Suggest an enhancement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Суть предложения / Summary
+      description: Какую задачу решает предлагаемая функция?
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Подробности реализации / Technical Details

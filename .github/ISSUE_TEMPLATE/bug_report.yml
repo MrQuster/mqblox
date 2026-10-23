@@ -1,0 +1,29 @@
+name: Сообщить об ошибке / Bug Report
+description: Сообщить о сбое лаунчера, шимов или проблем с отображением / Report a bug in MqBlox or MacOBlox shims
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за сообщение! Пожалуйста, приложите отчёт из кнопки **«📋 Копировать отчёт диагностики»** на главной вкладке MqBlox.
+  - type: textarea
+    id: description
+    attributes:
+      label: Описание проблемы / Bug Description
+      description: Что произошло и какие шаги приводят к ошибке?
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Отчёт диагностики / Diagnostics Report
+      description: Вставьте вывод кнопки «Копировать отчёт диагностики» (без личных данных и куки)
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи терминала или MACOBLOX_AUDIO_LOG (если относится к микрофону)
+      render: shell
