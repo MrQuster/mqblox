@@ -151,7 +151,11 @@ do_uninstall() {
   rm -f -- "$PREFIX/share/icons/hicolor/scalable/apps/mqblox.svg"
   for sz in 16 22 24 32 48 64 128 256 512; do
     rm -f -- "$PREFIX/share/icons/hicolor/${sz}x${sz}/apps/mqblox.png"
+    rmdir -p "$PREFIX/share/icons/hicolor/${sz}x${sz}/apps" 2>/dev/null || true
   done
+  rmdir -p "$PREFIX/share/icons/hicolor/scalable/apps" 2>/dev/null || true
+  rmdir -p "$PREFIX/share/applications" 2>/dev/null || true
+  rmdir -p "$PREFIX/bin" 2>/dev/null || true
   if [[ "$PURGE_DATA" == "true" ]]; then
     local cfg_dir="${XDG_CONFIG_HOME:-$HOME/.config}/mqblox"
     local data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/mqblox"
