@@ -85,11 +85,6 @@ QString shellSingleQuote(const QString &s) {
     return "'" + out + "'";
 }
 
-QString darlingMacOBloxUserDir(const QString &darlingPrefix) {
-    const QString user = qEnvironmentVariable("USER", QDir::homePath().section('/', -1));
-    return darlingPrefix + "/Users/" + user + "/Library/MacOBlox";
-}
-
 QString findDarlingBin() {
     const QString inPath = QStandardPaths::findExecutable("darling");
     if (!inPath.isEmpty()) return inPath;
@@ -102,6 +97,11 @@ QString findDarlingBin() {
 }
 
 } // namespace
+
+QString DarlingController::darlingMacOBloxUserDir(const QString &darlingPrefix) {
+    const QString user = qEnvironmentVariable("USER", QDir::homePath().section('/', -1));
+    return darlingPrefix + "/Users/" + user + "/Library/MacOBlox";
+}
 
 DarlingController::DarlingController(SettingsManager *settingsMgr, QObject *parent)
     : QObject(parent),
@@ -286,7 +286,7 @@ QString DarlingController::collectDiagnosticsReport() const {
                .arg(st.hasRobloxApp ? "Установлен" : "Не установлен",
                     st.installedRobloxVersion.isEmpty() ? "н/д" : st.installedRobloxVersion);
     out << QString("Сессия авторизации (Cookies.plist): %1")
-               .arg(isSignedIn() ? "Присутствует (токен не читается лаунчером)" : "Не авторизована");
+               .arg(isSignedIn() ? "🟢 Сессия активна (Cookies.plist сохранён в Darling; токен защищён и не считывается лаунчером)" : "Не авторизована");
     out << QString("Параметры: Target FPS=%1 | VSyncOff=%2 | MSAA=%3 | Мышь=%4% | DNS=#%5")
                .arg(s.unlimitedFps ? 9999 : s.targetFps)
                .arg(s.vsyncOff ? "Да" : "Нет")
@@ -369,6 +369,19 @@ QString DarlingController::buildDarlingLaunchScript(const QString &targetUri) co
     if (!traceAudioEnv.isEmpty()) {
         envExports << QString("export MACOBLOX_TRACE_AUDIO=%1").arg(shellSingleQuote(traceAudioEnv));
     }
+    QString backendStr = (s.graphicsBackend == GraphicsBackend::Vulkan) ? "vulkan" : "opengl";
+    const QString gfxBackendEnv = qEnvironmentVariable("MACOBLOX_GRAPHICS_BACKEND");
+    if (!gfxBackendEnv.isEmpty()) {
+        static const QRegularExpression safeIdent("^[a-zA-Z0-9_-]+$");
+        if (safeIdent.match(gfxBackendEnv).hasMatch()) {
+            backendStr = gfxBackendEnv;
+        }
+    }
+    envExports << QString("export MACOBLOX_GRAPHICS_BACKEND=%1").arg(shellSingleQuote(backendStr));
+    if (backendStr == "vulkan") {
+        envExports << "export MESA_LOADER_DRIVER_OVERRIDE=zink";
+        envExports << "export GALLIUM_DRIVER=zink";
+    }
 
     QString execCmd = "exec ./RobloxPlayer";
     if (!targetUri.trimmed().isEmpty()) {
@@ -383,7 +396,31 @@ QStringList DarlingController::buildFlatpakArgs(const QString &targetUri) const 
     return {"shell", "/bin/bash", "-c", buildDarlingLaunchScript(targetUri)};
 }
 
-static QByteArray buildHostDnsResponse(const QByteArray &query) {
+bool DarlingController::isTelemetryDomain(const QString &domain) {
+    const QString d = domain.trimmed().toLower();
+    return d == "pulsar.roblox.com" ||
+           d.endsWith(".pulsar.roblox.com") ||
+           d == "ecsv2.roblox.com" ||
+           d.endsWith(".ecsv2.roblox.com") ||
+           d == "ephemeralcounters.api.roblox.com" ||
+           d.endsWith(".ephemeralcounters.api.roblox.com");
+}
+
+QByteArray DarlingController::buildNxDomainResponse(const QByteArray &query, int questionEnd) {
+    if (query.size() < 12 || questionEnd > query.size()) return {};
+    QByteArray resp;
+    resp.append(query.left(2)); // Transaction ID
+    resp.append(static_cast<char>(0x81));
+    resp.append(static_cast<char>(0x83)); // Response + NXDOMAIN (RCODE = 3)
+    resp.append(query.mid(4, 2));         // QDCOUNT
+    resp.append(static_cast<char>(0x00)); resp.append(static_cast<char>(0x00)); // ANCOUNT = 0
+    resp.append(static_cast<char>(0x00)); resp.append(static_cast<char>(0x00)); // NSCOUNT = 0
+    resp.append(static_cast<char>(0x00)); resp.append(static_cast<char>(0x00)); // ARCOUNT = 0
+    resp.append(query.mid(12, questionEnd - 12));
+    return resp;
+}
+
+QByteArray DarlingController::buildHostDnsResponse(const QByteArray &query) {
     if (query.size() < 12) return {};
 
     // Extract QNAME starting at offset 12
@@ -400,6 +437,10 @@ static QByteArray buildHostDnsResponse(const QByteArray &query) {
     if (offset + 4 > query.size()) return {};
     const int questionEnd = offset + 4;
     const quint16 qtype = (static_cast<quint8>(query[offset]) << 8) | static_cast<quint8>(query[offset + 1]);
+
+    if (isTelemetryDomain(domain)) {
+        return buildNxDomainResponse(query, questionEnd);
+    }
 
     if (qtype != 1) {
         // Return standard NODATA (NOERROR with ANCOUNT=0) for non-A queries (e.g. AAAA = 28)
@@ -506,6 +547,23 @@ void DarlingController::startDnsForwarder() {
             quint16 senderPort = 0;
             m_dnsUdp->readDatagram(query.data(), query.size(), &senderHost, &senderPort);
             if (query.size() < 12) continue;
+
+            // Fast-path: immediately return NXDOMAIN for telemetry domains (e.g. pulsar.roblox.com)
+            int offset = 12;
+            QString domain;
+            while (offset < query.size()) {
+                const quint8 len = static_cast<quint8>(query[offset++]);
+                if (len == 0) break;
+                if (offset + len > query.size()) break;
+                if (!domain.isEmpty()) domain.append('.');
+                domain.append(QString::fromUtf8(query.mid(offset, len)));
+                offset += len;
+            }
+            if (offset + 4 <= query.size() && isTelemetryDomain(domain)) {
+                const QByteArray payload = buildNxDomainResponse(query, offset + 4);
+                m_dnsUdp->writeDatagram(payload, senderHost, senderPort);
+                continue;
+            }
 
             const QString upstream = m_dnsUpstreamIp;
             QPointer<QUdpSocket> udpGuard(m_dnsUdp);
@@ -743,9 +801,11 @@ void DarlingController::restartDarlingAsync() {
 }
 
 void DarlingController::saveCurrentSessionToSlotAsync() {
+    const QString cleanActiveId = QFileInfo(m_settingsMgr->activeAccountId()).fileName();
+    if (cleanActiveId.isEmpty() || cleanActiveId.contains("..")) return;
     const QString macobloxDir = darlingMacOBloxUserDir(m_settingsMgr->darlingPrefixDir());
     const QString slotDir =
-        m_settingsMgr->accountsDir() + "/" + m_settingsMgr->activeAccountId() + "/MacOBlox";
+        m_settingsMgr->accountsDir() + "/" + cleanActiveId + "/MacOBlox";
     (void)QtConcurrent::run([macobloxDir, slotDir]() {
         if (QDir(macobloxDir).exists()) {
             QDir(slotDir).removeRecursively();
@@ -756,19 +816,25 @@ void DarlingController::saveCurrentSessionToSlotAsync() {
 
 void DarlingController::switchAccountSlotAsync(const QString &targetAccountId) {
     stopRobloxAsync();
+    const QString cleanTargetId = QFileInfo(targetAccountId).fileName();
+    const QString cleanActiveId = QFileInfo(m_settingsMgr->activeAccountId()).fileName();
+    if (cleanTargetId.isEmpty() || cleanTargetId.contains("..") ||
+        cleanActiveId.isEmpty() || cleanActiveId.contains("..")) {
+        return;
+    }
     const QString macobloxDir = darlingMacOBloxUserDir(m_settingsMgr->darlingPrefixDir());
     const QString oldSlot =
-        m_settingsMgr->accountsDir() + "/" + m_settingsMgr->activeAccountId() + "/MacOBlox";
+        m_settingsMgr->accountsDir() + "/" + cleanActiveId + "/MacOBlox";
     const QString newSlot =
-        m_settingsMgr->accountsDir() + "/" + targetAccountId + "/MacOBlox";
+        m_settingsMgr->accountsDir() + "/" + cleanTargetId + "/MacOBlox";
 
-    m_settingsMgr->setActiveAccountId(targetAccountId);
+    m_settingsMgr->setActiveAccountId(cleanTargetId);
     m_settingsMgr->saveAll();
 
     auto *watcher = new QFutureWatcher<void>(this);
-    connect(watcher, &QFutureWatcher<void>::finished, this, [this, watcher, targetAccountId]() {
+    connect(watcher, &QFutureWatcher<void>::finished, this, [this, watcher, cleanTargetId]() {
         watcher->deleteLater();
-        emit accountSwitchCompleted(targetAccountId);
+        emit accountSwitchCompleted(cleanTargetId);
         emit sessionStateChanged();
     });
 
@@ -1059,7 +1125,15 @@ void DarlingController::handleProcessOutput(const QString &chunk) {
             line.contains("semaphore_timedwait failed") ||
             line.contains("semaphore_signal failed") ||
             line.contains("failed to increase FD rlimit") ||
-            line.contains("DefaultUnified");
+            line.contains("DefaultUnified") ||
+            line.contains("pulsar.roblox.com") ||
+            line.contains("setStartupThrottle") ||
+            line.contains("preRenderJob is null") ||
+            line.contains("SignalRCoreError") ||
+            line.contains("LuauForge") ||
+            line.contains("multiget-playability-status") ||
+            line.contains("Wrap-deformer") ||
+            line.contains("fetching meshes error");
 
         if (!isBenignNoise &&
             (line.contains("error", Qt::CaseInsensitive) ||

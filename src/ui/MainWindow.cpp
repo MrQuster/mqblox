@@ -1041,15 +1041,59 @@ QWidget *MainWindow::buildGraphicsPage() {
     g1->setColumnStretch(0, 0);
     g1->setColumnStretch(1, 1);
 
-    g1->addWidget(new QLabel(tr("Технология освещения:")), 0, 0);
+    g1->addWidget(new QLabel(tr("Графический бэкенд:")), 0, 0);
+    m_comboGfxBackend = new DarkComboBox();
+    m_comboGfxBackend->addItem(tr("OpenGL 4.1 Core (CGL / gl_profile.c) [По умолчанию]"),
+                               static_cast<int>(GraphicsBackend::OpenGL));
+    m_comboGfxBackend->addItem(tr("Vulkan (Native / RADV / Zink)"),
+                               static_cast<int>(GraphicsBackend::Vulkan));
+    m_comboGfxBackend->setItemData(0,
+        tr("Стабильный профиль OpenGL 4.1 Core через Darling CGL. Максимальная совместимость."),
+        Qt::ToolTipRole);
+    m_comboGfxBackend->setItemData(1,
+        tr("Рекомендуется для современных карт AMD/Nvidia/Intel с драйвером Vulkan; снижает нагрузку на CPU."),
+        Qt::ToolTipRole);
+    g1->addWidget(m_comboGfxBackend, 0, 1);
+
+    m_lblGfxBackendHint = new QLabel();
+    m_lblGfxBackendHint->setObjectName("SubText");
+    m_lblGfxBackendHint->setWordWrap(true);
+    g1->addWidget(m_lblGfxBackendHint, 1, 0, 1, 2);
+
+    auto updateBackendHint = [this](int backendId) {
+        if (!m_lblGfxBackendHint) return;
+        if (backendId == static_cast<int>(GraphicsBackend::Vulkan)) {
+            m_lblGfxBackendHint->setText(tr(
+                "⚡ <b>Vulkan (Native / RADV / Zink):</b> Рекомендуется для видеокарт AMD (Mesa RADV), "
+                "NVIDIA и Intel (ANV) с актуальным драйвером. Существенно снижает оверхед CPU на вызовы отрисовки "
+                "и устраняет микрофризы. Изменения вступят в силу при следующем запуске игры."
+            ));
+        } else {
+            m_lblGfxBackendHint->setText(tr(
+                "🛡️ <b>OpenGL 4.1 Core:</b> Проверенный стек рендеринга macOS под Darling (CGL + <code>gl_profile.c</code>). "
+                "Обеспечивает максимальную стабильность."
+            ));
+        }
+    };
+
+    connect(m_comboGfxBackend, &QComboBox::currentIndexChanged, this, [this, updateBackendHint](int) {
+        if (!m_comboGfxBackend) return;
+        const int backendId = m_comboGfxBackend->currentData().toInt();
+        updateBackendHint(backendId);
+        if (!m_isLoadingUi) {
+            triggerInstantAutosave(tr("⚡ Графический бэкенд обновлён (требуется перезапуск)"));
+        }
+    });
+
+    g1->addWidget(new QLabel(tr("Технология освещения:")), 2, 0);
     m_comboLighting = new DarkComboBox();
     m_comboLighting->addItem(tr("Voxel Flat (Максимум FPS)"), static_cast<int>(LightingMode::Voxel));
     m_comboLighting->addItem(tr("ShadowMap (Мягкие тени)"), static_cast<int>(LightingMode::ShadowMap));
     m_comboLighting->addItem(tr("Future Phase 3 (Ультра-реализм)"), static_cast<int>(LightingMode::FuturePhase3));
     m_comboLighting->addItem(tr("По умолчанию плейса"), static_cast<int>(LightingMode::GameDefault));
-    g1->addWidget(m_comboLighting, 0, 1);
+    g1->addWidget(m_comboLighting, 2, 1);
 
-    g1->addWidget(new QLabel(tr("Лимит кадров (FPS):")), 1, 0);
+    g1->addWidget(new QLabel(tr("Лимит кадров (FPS):")), 3, 0);
     auto *fpsRow = new QHBoxLayout();
     m_spinFps = new QSpinBox();
     m_spinFps->setRange(15, 9999);
@@ -1060,29 +1104,29 @@ QWidget *MainWindow::buildGraphicsPage() {
     });
     fpsRow->addWidget(m_spinFps);
     fpsRow->addWidget(m_chkUnlimFps);
-    g1->addLayout(fpsRow, 1, 1);
+    g1->addLayout(fpsRow, 3, 1);
 
-    g1->addWidget(new QLabel(tr("Качество текстур:")), 2, 0);
+    g1->addWidget(new QLabel(tr("Качество текстур:")), 4, 0);
     m_comboTex = new DarkComboBox();
     m_comboTex->addItem(tr("Автоматически"), static_cast<int>(TextureQuality::Auto));
     m_comboTex->addItem(tr("Уровень 0 (Минимум)"), static_cast<int>(TextureQuality::Level0));
     m_comboTex->addItem(tr("Уровень 1 (Низкие)"), static_cast<int>(TextureQuality::Level1));
     m_comboTex->addItem(tr("Уровень 2 (Средние)"), static_cast<int>(TextureQuality::Level2));
     m_comboTex->addItem(tr("Уровень 3 (Ультра HD)"), static_cast<int>(TextureQuality::Level3));
-    g1->addWidget(m_comboTex, 2, 1);
+    g1->addWidget(m_comboTex, 4, 1);
 
-    g1->addWidget(new QLabel(tr("Сглаживание (MSAA OpenGL):")), 3, 0);
+    g1->addWidget(new QLabel(tr("Сглаживание (MSAA OpenGL):")), 5, 0);
     m_comboMsaa = new DarkComboBox();
     m_comboMsaa->addItem(tr("Отключено (0x)"), static_cast<int>(MsaaMode::Off));
     m_comboMsaa->addItem("2x MSAA", static_cast<int>(MsaaMode::X2));
     m_comboMsaa->addItem("4x MSAA (Макс. для macOS CGL)", static_cast<int>(MsaaMode::X4));
-    g1->addWidget(m_comboMsaa, 3, 1);
+    g1->addWidget(m_comboMsaa, 5, 1);
 
-    g1->addWidget(new QLabel(tr("Уровень графики (FRM 0-21):")), 4, 0);
+    g1->addWidget(new QLabel(tr("Уровень графики (FRM 0-21):")), 6, 0);
     m_spinFrm = new QSpinBox();
     m_spinFrm->setRange(0, 21);
     m_spinFrm->setSpecialValueText(tr("0 (Из настроек игры)"));
-    g1->addWidget(m_spinFrm, 4, 1);
+    g1->addWidget(m_spinFrm, 6, 1);
     lay->addWidget(cardApi);
 
     auto *cardFx = new QFrame();
@@ -1408,7 +1452,7 @@ void MainWindow::refreshEnvironmentAndSessionUi() {
         const bool signedIn = m_darlingCtrl->isSignedIn();
         m_lblSessionStatus->setText(
             signedIn
-                ? tr("🟢 <b>Сессия в Darling активна</b> (Cookies.plist присутствует; токен не читается лаунчером)")
+                ? tr("🟢 <b>Сессия активна</b> (Cookies.plist сохранён в Darling; токен защищён и не считывается лаунчером)")
                 : tr("⚪ <b>Сессия не найдена</b> — войдите внутри Roblox через «Быстрый вход» (Quick Login)"));
         if (m_btnLogout) m_btnLogout->setEnabled(signedIn);
     }
@@ -1572,6 +1616,23 @@ void MainWindow::syncUiFromSettings() {
     const AppSettings &s = m_settingsMgr.settings();
 
     if (m_comboRes) m_comboRes->setCurrentIndex(m_comboRes->findData(static_cast<int>(s.resMode)));
+    if (m_comboGfxBackend) {
+        m_comboGfxBackend->setCurrentIndex(m_comboGfxBackend->findData(static_cast<int>(s.graphicsBackend)));
+        if (m_lblGfxBackendHint) {
+            if (s.graphicsBackend == GraphicsBackend::Vulkan) {
+                m_lblGfxBackendHint->setText(tr(
+                    "⚡ <b>Vulkan (Native / RADV / Zink):</b> Рекомендуется для видеокарт AMD (Mesa RADV), "
+                    "NVIDIA и Intel (ANV) с актуальным драйвером. Существенно снижает оверхед CPU на вызовы отрисовки "
+                    "и устраняет микрофризы. Изменения вступят в силу при следующем запуске игры."
+                ));
+            } else {
+                m_lblGfxBackendHint->setText(tr(
+                    "🛡️ <b>OpenGL 4.1 Core:</b> Проверенный стек рендеринга macOS под Darling (CGL + <code>gl_profile.c</code>). "
+                    "Обеспечивает максимальную стабильность."
+                ));
+            }
+        }
+    }
     if (m_comboLighting) m_comboLighting->setCurrentIndex(m_comboLighting->findData(static_cast<int>(s.lighting)));
     if (m_comboTex) m_comboTex->setCurrentIndex(m_comboTex->findData(static_cast<int>(s.textureQuality)));
     if (m_comboMsaa) m_comboMsaa->setCurrentIndex(m_comboMsaa->findData(static_cast<int>(s.msaa)));
@@ -1645,6 +1706,7 @@ void MainWindow::syncUiFromSettings() {
 void MainWindow::collectSettingsFromUi() {
     AppSettings &s = m_settingsMgr.settings();
     if (m_comboRes) s.resMode = static_cast<ResolutionMode>(m_comboRes->currentData().toInt());
+    if (m_comboGfxBackend) s.graphicsBackend = static_cast<GraphicsBackend>(m_comboGfxBackend->currentData().toInt());
     if (m_comboLighting) s.lighting = static_cast<LightingMode>(m_comboLighting->currentData().toInt());
     if (m_comboTex) s.textureQuality = static_cast<TextureQuality>(m_comboTex->currentData().toInt());
     if (m_comboMsaa) s.msaa = static_cast<MsaaMode>(m_comboMsaa->currentData().toInt());

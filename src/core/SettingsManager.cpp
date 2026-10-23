@@ -238,8 +238,17 @@ QJsonObject SettingsManager::buildEffectiveFflags(QString *errMsg) const {
     fflags["FFlagTaskSchedulerLimitTargetFpsTo2402"] = false;
     fflags["FFlagGameBasicSettingsFramerateCap5"] = true;
 
-    // macOS RobloxPlayer uses OpenGL 4.1 Core via Darling CGL + gl_profile.c
-    fflags["FFlagDebugGraphicsPreferOpenGL"] = true;
+    if (m_settings.graphicsBackend == GraphicsBackend::Vulkan) {
+        fflags["FFlagDebugGraphicsPreferVulkan"] = true;
+        fflags["FFlagDebugGraphicsDisableVulkan"] = false;
+        fflags["FFlagDebugGraphicsPreferOpenGL"] = false;
+        fflags["FFlagDebugGraphicsDisableOpenGL"] = true;
+    } else {
+        fflags["FFlagDebugGraphicsPreferOpenGL"] = true;
+        fflags["FFlagDebugGraphicsDisableOpenGL"] = false;
+        fflags["FFlagDebugGraphicsPreferVulkan"] = false;
+        fflags["FFlagDebugGraphicsDisableVulkan"] = true;
+    }
 
     if (m_settings.lighting == LightingMode::Voxel) {
         // Modern Roblox (0.744+) removed legacy Voxel shaders, causing missing shader crashes.

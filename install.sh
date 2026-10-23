@@ -88,13 +88,13 @@ check_dependencies() {
     printf '[!] Missing build/runtime dependencies: %s\n' "${missing[*]}" >&2
     case "$distro" in
       arch|cachyos|endeavouros|manjaro)
-        printf '    Install on Arch Linux: sudo pacman -S --needed base-devel cmake ninja qt6-base qt6-svg qt6-wayland clang lld unzip\n' >&2
+        printf '    Install on Arch Linux: sudo pacman -S --needed base-devel cmake ninja qt6-base qt6-svg qt6-wayland clang lld unzip vulkan-icd-loader\n' >&2
         ;;
       fedora|nobara)
-        printf '    Install on Fedora: sudo dnf install -y cmake ninja-build gcc-c++ qt6-qtbase-devel qt6-qtsvg-devel clang lld unzip\n' >&2
+        printf '    Install on Fedora: sudo dnf install -y cmake ninja-build gcc-c++ qt6-qtbase-devel qt6-qtsvg-devel clang lld unzip vulkan-loader\n' >&2
         ;;
       debian|ubuntu|linuxmint|pop)
-        printf '    Install on Debian/Ubuntu: sudo apt install -y build-essential cmake ninja-build qt6-base-dev libqt6svg6-dev clang lld unzip\n' >&2
+        printf '    Install on Debian/Ubuntu: sudo apt install -y build-essential cmake ninja-build qt6-base-dev libqt6svg6-dev clang lld unzip libvulkan1\n' >&2
         ;;
       *)
         printf '    Please install CMake, Qt6 (Core, Gui, Widgets, Network, OpenGL, Svg, Test), clang, lld, and unzip.\n' >&2

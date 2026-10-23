@@ -2,6 +2,23 @@
 
 Все значимые изменения проекта **MqBlox × MacOBlox** документируются в этом файле.
 
+## [36.1.0] — 2026-10-23
+
+### Добавлено (Added)
+- **Выбор графического бэкенда (OpenGL 4.1 Core vs Vulkan)**:
+  - В настройках графики добавлен выпадающий список: `OpenGL 4.1 Core (CGL / gl_profile.c)` и `Vulkan (Native / RADV / Zink)`.
+  - Взаимно исключающие FastFlags движка Roblox (`FFlagDebugGraphicsPreferVulkan`, `FFlagDebugGraphicsDisableVulkan`, `FFlagDebugGraphicsPreferOpenGL`, `FFlagDebugGraphicsDisableOpenGL`).
+  - При выборе Vulkan лаунчер активирует переменные окружения `MACOBLOX_GRAPHICS_BACKEND=vulkan`, `MESA_LOADER_DRIVER_OVERRIDE=zink`, `GALLIUM_DRIVER=zink` для высокопроизводительного рендера через Vulkan (Mesa RADV для AMD, ANV для Intel, NVK для Nvidia).
+  - В `PKGBUILD` и `install.sh` добавлен пакет `vulkan-icd-loader`.
+- **Устранение 5-секундных сетевых лагов запуска (DNS Sinkhole)**:
+  - Локальный DNS-резолвер в `DarlingController` теперь мгновенно (за 0 мс) возвращает `NXDOMAIN` для доменов телеметрии (`pulsar.roblox.com`, `ecsv2.roblox.com`, `ephemeralcounters.api.roblox.com`), устраняя 5000 мс зависание потоков HTTP cURL при старте.
+- **Очистка отчёта диагностики от ложных предупреждений**:
+  - В фильтр `isBenignNoise` добавлены штатные информационные логи Roblox (`setStartupThrottle`, `preRenderJob is null`, `SignalRCoreError`, `LuauForge`, `multiget-playability-status`, `Wrap-deformer`).
+  - Уточнена формулировка статуса сессии: *"🟢 Сессия активна (Cookies.plist сохранён в Darling; токен защищён и не считывается лаунчером)"*.
+- **Автономная команда AI-агентов с сохранением между сессиями**:
+  - Создан `GEMINI.md`, правила и спецификации 6 агентов (`code-reviewer`, `security-auditor`, `darling-specialist`, `qa-tester`, `ui-ux-reviewer`, `system-packager`).
+  - Добавлено правило обязательного пуша обновлений в Git/GitHub после каждого цикла доработок.
+
 ## [36.0.0] — 2026-10-23
 
 ### Добавлено (Added)

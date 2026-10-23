@@ -16,6 +16,7 @@ enum class SettingCategory {
 };
 
 enum class ResolutionMode { Auto = 0, HD_720p = 1, FHD_1080p = 2, QHD_2K = 3 };
+enum class GraphicsBackend { OpenGL = 0, Vulkan = 1 };
 enum class LightingMode { Voxel = 0, ShadowMap = 1, FuturePhase3 = 2, GameDefault = 3 };
 enum class TextureQuality { Auto = 0, Level0 = 1, Level1 = 2, Level2 = 3, Level3 = 4 };
 enum class MsaaMode { Off = 0, X2 = 1, X4 = 2 };
@@ -32,6 +33,7 @@ struct AppSettings {
     int schemaVersion = 36;
 
     ResolutionMode resMode = ResolutionMode::Auto;
+    GraphicsBackend graphicsBackend = GraphicsBackend::OpenGL;
     LightingMode lighting = LightingMode::GameDefault;
     TextureQuality textureQuality = TextureQuality::Auto;
     MsaaMode msaa = MsaaMode::Off;

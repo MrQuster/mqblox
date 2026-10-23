@@ -229,7 +229,8 @@ private:
         addBool("autoReconnectOnCrash", SettingCategory::General, "Авто-перезаход при сбое", "Перезапускать клиент при ненулевом коде выхода", false, &AppSettings::autoReconnectOnCrash);
         addBool("sidebarPinned", SettingCategory::Layout, "Закрепить боковую панель", "Не сворачивать меню навигации", false, &AppSettings::sidebarPinned);
 
-        // Graphics & FastFlags (macOS OpenGL Core Profile)
+        // Graphics & FastFlags
+        addEnum("graphicsBackend", SettingCategory::Graphics, "Графический бэкенд", "[MacOBlox] 0=OpenGL 4.1 Core (CGL), 1=Vulkan (Native/RADV/Zink)", true, 0, 1, &AppSettings::graphicsBackend);
         addEnum("lighting", SettingCategory::Graphics, "Технология освещения", "[Предположительно: белый список FFlag] Voxel / ShadowMap / Future Phase 3", true, 0, 3, &AppSettings::lighting);
         addEnum("textureQuality", SettingCategory::Graphics, "Качество текстур", "[Предположительно: белый список FFlag] DFIntTextureQualityOverride", true, 0, 4, &AppSettings::textureQuality);
         addEnum("msaa", SettingCategory::Graphics, "Сглаживание MSAA (OpenGL)", "[Подтверждён в MacOBlox] FIntDebugForceMSAASamples (0/2x/4x, активно и на AMD через gl_profile.c)", true, 0, 2, &AppSettings::msaa);

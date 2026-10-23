@@ -63,6 +63,11 @@ public:
     QStringList buildFlatpakArgs(const QString &targetUri = {}) const;
     QString buildDarlingLaunchScript(const QString &targetUri = {}) const;
 
+    static QString darlingMacOBloxUserDir(const QString &darlingPrefix);
+    static bool isTelemetryDomain(const QString &domain);
+    static QByteArray buildNxDomainResponse(const QByteArray &query, int questionEnd);
+    static QByteArray buildHostDnsResponse(const QByteArray &query);
+
 signals:
     void hardwareDetected();
     void logGenerated(const QString &line);

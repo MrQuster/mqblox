@@ -22,6 +22,7 @@ makedepends=(
 )
 optdepends=(
   'darling: macOS translation layer required to run RobloxPlayer.app'
+  'vulkan-icd-loader: Vulkan hardware acceleration and Wayland buffer sharing for Qt6'
 )
 source=()
 sha256sums=()

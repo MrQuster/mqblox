@@ -53,16 +53,20 @@ This document defines the specialized agent team for developing, reviewing, test
   - Maintain `install.sh`, `PKGBUILD`, Flatpak manifests, and desktop integration files.
   - Verify XDG Base Directory Specification compliance (`~/.config`, `~/.local/share`, `~/.cache`).
   - Ensure MIME handler registration and `roblox-player://` URI protocol associations.
-  - Validate clean install, update, and uninstall workflows across Arch, Debian/Ubuntu, and Fedora.
+  - Maintain build & runtime dependencies across Arch, Debian/Ubuntu, and Fedora (including `vulkan-icd-loader` for Qt6 Wayland buffer sharing and OpenGL core dependencies).
+  - Validate clean install, update, and uninstall workflows across distributions.
 
 ---
 
-## Invocation in Antigravity
+## Persistence & Invocation in Antigravity
 
-These agents can be invoked using the `invoke_subagent` tool with their respective names:
-- `TypeName: "code-reviewer"`
-- `TypeName: "security-auditor"`
-- `TypeName: "darling-specialist"`
-- `TypeName: "qa-tester"`
-- `TypeName: "ui-ux-reviewer"`
-- `TypeName: "system-packager"`
+These specialized agents are permanently configured across restarts in the `mqblox` workspace:
+- System definitions reside in `agents/<agent-name>.md`.
+- Workspace initialization rules are defined in `GEMINI.md` and `.agents/rules/specialized-agents.md`.
+- In new sessions, subagents are registered via `define_subagent` if not already loaded, and invoked using `invoke_subagent`:
+  - `TypeName: "code-reviewer"`
+  - `TypeName: "security-auditor"`
+  - `TypeName: "darling-specialist"`
+  - `TypeName: "qa-tester"`
+  - `TypeName: "ui-ux-reviewer"`
+  - `TypeName: "system-packager"`

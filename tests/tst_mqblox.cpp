@@ -57,7 +57,9 @@ private slots:
         QCOMPARE(csRoot.value("FIntRenderShadowIntensity").toInt(), 0);
         QCOMPARE(csRoot.value("FIntFRMMinGrassDistance").toInt(), 0);
         QCOMPARE(csRoot.value("FFlagDebugGraphicsPreferOpenGL").toBool(), true);
-        QVERIFY(!csRoot.contains("FFlagDebugGraphicsPreferVulkan"));
+        QCOMPARE(csRoot.value("FFlagDebugGraphicsDisableOpenGL").toBool(), false);
+        QCOMPARE(csRoot.value("FFlagDebugGraphicsPreferVulkan").toBool(), false);
+        QCOMPARE(csRoot.value("FFlagDebugGraphicsDisableVulkan").toBool(), true);
     }
 
     void testRegistryClampingMutualExclusionAndReset() {
@@ -216,6 +218,158 @@ private slots:
         QVERIFY(code.contains("unit_mic_thread"));
         QVERIFY(code.contains("MACOBLOX_MIC_FIFO"));
         QVERIFY(code.contains("MACOBLOX_AUDIO_LOG"));
+    }
+
+    void testCookiesDiagnosticsPrivacyAndWording() {
+        SettingsManager mgr;
+        DarlingController ctrl(&mgr);
+
+        // Before cookies exist: session should not be active
+        QVERIFY(!ctrl.isSignedIn());
+        QString reportNoAuth = ctrl.collectDiagnosticsReport();
+        QVERIFY(reportNoAuth.contains("Сессия авторизации (Cookies.plist): Не авторизована"));
+
+        // Create a simulated Cookies.plist inside Darling user dir
+        const QString cookiesDir = DarlingController::darlingMacOBloxUserDir(mgr.darlingPrefixDir());
+        QDir().mkpath(cookiesDir);
+        const QString cookiesPath = cookiesDir + "/Cookies.plist";
+        {
+            QFile f(cookiesPath);
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            f.write("<plist version=\"1.0\"><dict><key>Name</key><string>.ROBLOSECURITY</string><key>Value</key><string>_SECRET_TOKEN_DO_NOT_LEAK_</string></dict></plist>");
+            f.close();
+        }
+
+        // Verify session is detected as signed in with the exact required wording
+        QVERIFY(ctrl.isSignedIn());
+        QString reportAuth = ctrl.collectDiagnosticsReport();
+        QVERIFY(reportAuth.contains("🟢 Сессия активна (Cookies.plist сохранён в Darling; токен защищён и не считывается лаунчером)"));
+
+        // Crucial security & privacy audit: the secret token value must NEVER be leaked or read into the report
+        QVERIFY(!reportAuth.contains("_SECRET_TOKEN_DO_NOT_LEAK_"));
+
+        // Clean up
+        QFile::remove(cookiesPath);
+        QVERIFY(!ctrl.isSignedIn());
+    }
+
+    void testProcessExecutionBackendSanitization() {
+        SettingsManager mgr;
+        DarlingController ctrl(&mgr);
+
+        // Test safe alphanumeric MACOBLOX_GRAPHICS_BACKEND
+        qputenv("MACOBLOX_GRAPHICS_BACKEND", "opengl");
+        QString script = ctrl.buildDarlingLaunchScript();
+        QVERIFY(script.contains("export MACOBLOX_GRAPHICS_BACKEND='opengl'"));
+
+        // Test shell injection attempt: semicolon, command chaining, backticks, quotes
+        qputenv("MACOBLOX_GRAPHICS_BACKEND", "opengl; touch /tmp/pwned");
+        script = ctrl.buildDarlingLaunchScript();
+        QVERIFY(!script.contains("touch /tmp/pwned"));
+        QVERIFY(!script.contains(";"));
+        QVERIFY(script.contains("export MACOBLOX_GRAPHICS_BACKEND='opengl'"));
+
+        // Test path traversal attempt
+        qputenv("MACOBLOX_GRAPHICS_BACKEND", "../../../etc/passwd");
+        script = ctrl.buildDarlingLaunchScript();
+        QVERIFY(!script.contains("../../../etc/passwd"));
+        QVERIFY(!script.contains(".."));
+        QVERIFY(script.contains("export MACOBLOX_GRAPHICS_BACKEND='opengl'"));
+
+        qunsetenv("MACOBLOX_GRAPHICS_BACKEND");
+    }
+
+    void testDnsTelemetryFilteringAndLegitimateDomains() {
+        // 1. Verify telemetry domains are identified correctly
+        QVERIFY(DarlingController::isTelemetryDomain("pulsar.roblox.com"));
+        QVERIFY(DarlingController::isTelemetryDomain("PULSAR.ROBLOX.COM"));
+        QVERIFY(DarlingController::isTelemetryDomain("sub.pulsar.roblox.com"));
+        QVERIFY(DarlingController::isTelemetryDomain("ecsv2.roblox.com"));
+        QVERIFY(DarlingController::isTelemetryDomain("ephemeralcounters.api.roblox.com"));
+
+        // 2. Verify legitimate game servers and discovery domains are NOT blocked
+        QVERIFY(!DarlingController::isTelemetryDomain("roblox.com"));
+        QVERIFY(!DarlingController::isTelemetryDomain("www.roblox.com"));
+        QVERIFY(!DarlingController::isTelemetryDomain("gamejoin.roblox.com"));
+        QVERIFY(!DarlingController::isTelemetryDomain("matchmaking.roblox.com"));
+        QVERIFY(!DarlingController::isTelemetryDomain("apis.roblox.com"));
+        QVERIFY(!DarlingController::isTelemetryDomain("c.rbxcdn.com"));
+        QVERIFY(!DarlingController::isTelemetryDomain("setup.rbxcdn.com"));
+
+        // 3. Construct a standard DNS A-query packet for pulsar.roblox.com
+        QByteArray dnsQuery;
+        dnsQuery.append(static_cast<char>(0x12)); // Transaction ID MSB
+        dnsQuery.append(static_cast<char>(0x34)); // Transaction ID LSB
+        dnsQuery.append(static_cast<char>(0x01)); // Flags: RD=1
+        dnsQuery.append(static_cast<char>(0x00));
+        dnsQuery.append(static_cast<char>(0x00)); // QDCOUNT = 1
+        dnsQuery.append(static_cast<char>(0x01));
+        dnsQuery.append(static_cast<char>(0x00)); // ANCOUNT = 0
+        dnsQuery.append(static_cast<char>(0x00));
+        dnsQuery.append(static_cast<char>(0x00)); // NSCOUNT = 0
+        dnsQuery.append(static_cast<char>(0x00));
+        dnsQuery.append(static_cast<char>(0x00)); // ARCOUNT = 0
+        dnsQuery.append(static_cast<char>(0x00));
+
+        // QNAME: 6 pulsar 6 roblox 3 com 0
+        dnsQuery.append(static_cast<char>(6));
+        dnsQuery.append("pulsar");
+        dnsQuery.append(static_cast<char>(6));
+        dnsQuery.append("roblox");
+        dnsQuery.append(static_cast<char>(3));
+        dnsQuery.append("com");
+        dnsQuery.append(static_cast<char>(0));
+
+        // QTYPE = 1 (A), QCLASS = 1 (IN)
+        dnsQuery.append(static_cast<char>(0x00));
+        dnsQuery.append(static_cast<char>(0x01));
+        dnsQuery.append(static_cast<char>(0x00));
+        dnsQuery.append(static_cast<char>(0x01));
+
+        // 4. Test buildHostDnsResponse on pulsar.roblox.com
+        QByteArray resp = DarlingController::buildHostDnsResponse(dnsQuery);
+        QVERIFY(!resp.isEmpty());
+        // Verify transaction ID matched
+        QCOMPARE(resp.left(2), dnsQuery.left(2));
+        // Verify Flags indicate Response (QR=1) and NXDOMAIN (RCODE=3)
+        const quint8 flagByte1 = static_cast<quint8>(resp[2]);
+        const quint8 flagByte2 = static_cast<quint8>(resp[3]);
+        QVERIFY((flagByte1 & 0x80) != 0); // Response flag QR=1
+        QCOMPARE(flagByte2 & 0x0F, 3);    // RCODE = 3 (NXDOMAIN)
+        // Verify ANCOUNT = 0
+        QCOMPARE(static_cast<quint8>(resp[6]), static_cast<quint8>(0));
+        QCOMPARE(static_cast<quint8>(resp[7]), static_cast<quint8>(0));
+    }
+
+    void testGraphicsBackendVulkanSwitching() {
+        SettingsManager mgr;
+        const QString robloxDir = mgr.robloxAppDir();
+        QDir().mkpath(robloxDir + "/Contents/MacOS/ClientSettings");
+        DarlingController ctrl(&mgr);
+
+        // Verify default is OpenGL
+        QCOMPARE(static_cast<int>(mgr.settings().graphicsBackend), static_cast<int>(GraphicsBackend::OpenGL));
+        QString script = ctrl.buildDarlingLaunchScript();
+        QVERIFY(script.contains("export MACOBLOX_GRAPHICS_BACKEND='opengl'"));
+
+        // Switch to Vulkan
+        mgr.settings().graphicsBackend = GraphicsBackend::Vulkan;
+        QString err;
+        QVERIFY(mgr.saveAll(&err));
+
+        QFile csf(robloxDir + "/Contents/MacOS/ClientSettings/ClientAppSettings.json");
+        QVERIFY(csf.open(QIODevice::ReadOnly));
+        QJsonObject root = QJsonDocument::fromJson(csf.readAll()).object();
+        QCOMPARE(root.value("FFlagDebugGraphicsPreferVulkan").toBool(), true);
+        QCOMPARE(root.value("FFlagDebugGraphicsDisableVulkan").toBool(), false);
+        QCOMPARE(root.value("FFlagDebugGraphicsPreferOpenGL").toBool(), false);
+        QCOMPARE(root.value("FFlagDebugGraphicsDisableOpenGL").toBool(), true);
+
+        // Verify launch script exports MACOBLOX_GRAPHICS_BACKEND='vulkan' and Zink driver override
+        script = ctrl.buildDarlingLaunchScript();
+        QVERIFY(script.contains("export MACOBLOX_GRAPHICS_BACKEND='vulkan'"));
+        QVERIFY(script.contains("export MESA_LOADER_DRIVER_OVERRIDE=zink"));
+        QVERIFY(script.contains("export GALLIUM_DRIVER=zink"));
     }
 
 private:

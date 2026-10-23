@@ -134,6 +134,8 @@ private:
 
     // Graphics & FastFlags
     QLabel *m_lblPresetDesc = nullptr;
+    DarkComboBox *m_comboGfxBackend = nullptr;
+    QLabel *m_lblGfxBackendHint = nullptr;
     DarkComboBox *m_comboLighting = nullptr;
     QSpinBox *m_spinFps = nullptr;
     QCheckBox *m_chkUnlimFps = nullptr;
