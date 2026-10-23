@@ -44,7 +44,7 @@ static void applyGlobalDarkPalette(QApplication &app) {
 
 int main(int argc, char *argv[]) {
     maximizeFileDescriptorLimit();
-    QLoggingCategory::setFilterRules("qt.qpa.wayland.textinput=false\nqt.core.qobject.connect=false");
+    QLoggingCategory::setFilterRules("qt.qpa.wayland.textinput=false");
 
     QApplication app(argc, argv);
     app.setApplicationName("mqblox");

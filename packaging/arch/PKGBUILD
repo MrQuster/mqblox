@@ -23,14 +23,21 @@ makedepends=(
 optdepends=(
   'darling: macOS translation layer required to run RobloxPlayer.app'
   'vulkan-icd-loader: Vulkan hardware acceleration and Wayland buffer sharing for Qt6'
+  'xdg-utils: desktop integration and URL scheme registration'
+  'pciutils: GPU hardware detection via lspci'
+  'ffmpeg: transcoding custom background videos'
 )
 source=()
 sha256sums=()
 
 build() {
-  local src_root="${startdir}"
-  if [[ ! -f "${src_root}/CMakeLists.txt" && -f "${startdir}/../..//CMakeLists.txt" ]]; then
-    src_root="$(cd "${startdir}/../.." && pwd -P)"
+  local src_root="${srcdir}/${pkgname}-${pkgver}"
+  if [[ ! -f "${src_root}/CMakeLists.txt" ]]; then
+    if [[ -f "${startdir}/CMakeLists.txt" ]]; then
+      src_root="${startdir}"
+    elif [[ -f "${startdir}/../../CMakeLists.txt" ]]; then
+      src_root="$(cd "${startdir}/../.." && pwd -P)"
+    fi
   fi
   cmake -S "${src_root}" -B "${srcdir}/build" \
     -GNinja \

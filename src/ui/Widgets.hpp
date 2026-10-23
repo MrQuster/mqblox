@@ -59,7 +59,11 @@ struct IosSpring {
 inline Ton618GlWidget *findBackdropTon618(const QWidget *w) {
     if (!w) return nullptr;
     QWidget *top = w->window();
-    return top ? top->findChild<Ton618GlWidget *>() : nullptr;
+    if (!top) return nullptr;
+    if (auto *direct = top->findChild<Ton618GlWidget *>(QString{}, Qt::FindDirectChildrenOnly)) {
+        return direct;
+    }
+    return top->findChild<Ton618GlWidget *>();
 }
 
 inline QColor blendColors(const QColor &a, const QColor &b, double t, int alpha = 255) {
@@ -81,171 +85,60 @@ inline void drawHyperOs4LiquidGlass(QPainter &p,
                                     bool hasCursor,
                                     const QColor &customAccent = QColor(),
                                     double glassOpacityOverride = -1.0) {
-    if (rect.width() <= 4 || rect.height() <= 4) return;
+    Q_UNUSED(cursorPos);
+    Q_UNUSED(hasCursor);
+    Q_UNUSED(glassOpacityOverride);
+    if (rect.width() <= 2 || rect.height() <= 2) return;
 
     Ton618GlWidget *bg = findBackdropTon618(widget);
     VisualParams vp = bg ? bg->visuals() : VisualParams{};
 
     const bool isDisabled = widget && !widget->isEnabled();
     const bool hasFocus = widget && widget->hasFocus();
-    const bool allowCursorLight = hasCursor && !isDisabled && vp.cursorGlowFollow && !vp.reducedMotion;
+    const bool light = bg && bg->isLightThemeActive();
+    double radius = std::clamp(baseRadius, 4.0, 18.0);
+    if (vp.cornerRadiusMode == 0) radius = std::min(radius, 8.0);
+    else if (vp.cornerRadiusMode == 2) radius = std::min(radius + 4.0, 22.0);
 
-    double radius = baseRadius;
-    if (baseRadius >= 18.0) {
-        if (vp.cornerRadiusMode == 0) radius = 12.0;
-        else if (vp.cornerRadiusMode == 2) radius = 28.0;
-        else radius = 21.0;
-    } else {
-        if (vp.cornerRadiusMode == 0) radius = std::min(baseRadius, 8.0);
-        else if (vp.cornerRadiusMode == 2) radius = std::min(rect.height() * 0.49, 18.0);
-    }
+    QColor accent = customAccent.isValid() ? customAccent : (bg ? bg->fixedAccentColor() : QColor(56, 189, 248));
+    double hMix = isDisabled ? 0.0 : std::clamp(hoverMix, 0.0, 1.0);
 
-    double userOpacity = vp.glassOpacityPct / 100.0;
-    if (vp.glassStyleMode == 1) userOpacity = std::max(userOpacity, 0.22); // Матовое
-    else if (vp.glassStyleMode == 2) userOpacity = std::max(userOpacity, 0.34); // Тонированное
-
-    double glassOpacity = (glassOpacityOverride >= 0.0) ? glassOpacityOverride : userOpacity;
-    double borderScale = vp.borderBrightnessPct / 100.0;
-    double specScale = vp.specularStrengthPct / 100.0;
-    double shadowScale = vp.shadowStrengthPct / 100.0;
-    double penWidth = std::clamp(vp.borderThicknessPx / 10.0, 0.5, 2.5);
-
-    if (isDisabled) {
-        hoverMix = 0.0;
-        borderScale *= 0.45;
-    }
-
-    QColor cTL = bg ? bg->sampleAdaptiveColor(widget, rect.topLeft()) : QColor(251, 191, 36);
-    QColor cMid = bg ? bg->sampleAdaptiveColor(widget, rect.center()) : QColor(56, 189, 248);
-    QColor cBR = bg ? bg->sampleAdaptiveColor(widget, rect.bottomRight()) : QColor(168, 85, 247);
-
-    if (customAccent.isValid()) {
-        double mixAmt = std::max(0.28, 0.50 * hoverMix);
-        cTL = blendColors(cTL, customAccent, mixAmt);
-        cMid = blendColors(cMid, customAccent, mixAmt);
-        cBR = blendColors(cBR, customAccent, mixAmt);
-    }
-
-    // 1. Мягкая внешняя тень
-    if (shadowScale > 0.02) {
+    // 1. Minimalist subtle drop shadow
+    if (!light && !vp.highContrast) {
         p.save();
         p.setPen(Qt::NoPen);
-        int shAlpha = std::clamp(int((50 + 28 * hoverMix) * shadowScale), 0, 180);
-        p.setBrush(QColor(0, 0, 0, shAlpha));
-        p.drawRoundedRect(rect.translated(0, 2.0), radius, radius);
+        p.setBrush(QColor(0, 0, 0, int(35 + 20 * hMix)));
+        p.drawRoundedRect(rect.translated(0, 1.5), radius, radius);
         p.restore();
     }
 
-    QPainterPath clipPath;
-    clipPath.addRoundedRect(rect, radius, radius);
-
-    p.save();
-    p.setClipPath(clipPath);
-
-    // 2. Размытая подложка из общего буфера фона
-    if (bg && !vp.highContrast) {
-        const QPixmap &frosted = bg->frostedBackdrop();
-        if (!frosted.isNull()) {
-            QPoint posInBg = widget->mapTo(bg, rect.topLeft().toPoint());
-            int shiftX = allowCursorLight ? int((cursorPos.x() - rect.center().x()) * 0.035) : 0;
-            int shiftY = allowCursorLight ? int((cursorPos.y() - rect.center().y()) * 0.035) : 2;
-            QRect srcRect(posInBg.x() + shiftX, posInBg.y() + shiftY,
-                          int(rect.width()), int(rect.height()));
-            srcRect = srcRect.intersected(frosted.rect());
-            if (srcRect.isValid()) {
-                double frostOp = (vp.glassStyleMode == 1)
-                    ? std::clamp(0.55 + glassOpacity * 0.7, 0.35, 0.92)
-                    : std::clamp(0.36 + glassOpacity * 0.9 + 0.10 * hoverMix, 0.22, 0.85);
-                p.setOpacity(frostOp);
-                p.drawPixmap(rect.topLeft(), frosted, srcRect);
-                p.setOpacity(1.0);
-            }
-        }
-    }
-
-    // 3. Тонирующая вуаль с защитой контраста текста (Тёмная / Светлая / Высокий контраст)
-    QLinearGradient tintVeil(rect.topLeft(), rect.bottomRight());
+    // 2. Minimalist Card/Widget Surface
+    QColor baseBg;
     if (vp.highContrast) {
-        tintVeil.setColorAt(0.0, QColor(4, 6, 12, 235));
-        tintVeil.setColorAt(1.0, QColor(8, 12, 22, 240));
-    } else if (bg && bg->isLightThemeActive()) {
-        int aLight = std::clamp(int(175 + glassOpacity * 120), 165, 240);
-        tintVeil.setColorAt(0.0, QColor(255, 255, 255, aLight));
-        tintVeil.setColorAt(1.0, QColor(241, 245, 249, aLight));
+        baseBg = QColor(10, 14, 26);
+    } else if (light) {
+        baseBg = blendColors(QColor(255, 255, 255), QColor(241, 245, 249), hMix);
     } else {
-        int lumBg = (cMid.red() * 77 + cMid.green() * 150 + cMid.blue() * 29) >> 8;
-        int contrastGuard = (lumBg > 155) ? 42 : 16;
-        int aBase = std::clamp(int(glassOpacity * 255 + contrastGuard + 12 * hoverMix), 18, 215);
-        int div = (vp.glassStyleMode == 2) ? 4 : 7;
-        tintVeil.setColorAt(0.0, QColor(10 + cTL.red() / div, 14 + cTL.green() / div, 26 + cTL.blue() / div, aBase));
-        tintVeil.setColorAt(0.5, QColor(6 + cMid.red() / (div + 1), 10 + cMid.green() / (div + 1), 20 + cMid.blue() / (div + 1), int(aBase * 0.88)));
-        tintVeil.setColorAt(1.0, QColor(8 + cBR.red() / div, 12 + cBR.green() / div, 24 + cBR.blue() / div, std::min(255, aBase + 8)));
+        baseBg = blendColors(QColor(16, 22, 35, 230), QColor(25, 34, 52, 245), hMix);
     }
-    p.fillRect(rect, tintVeil);
-
-    // 4. Световой прожектор за курсором
-    if (allowCursorLight && specScale > 0.02) {
-        QColor cCursor = bg ? bg->sampleAdaptiveColor(widget, cursorPos) : cMid;
-        double spotR = std::max(rect.width(), rect.height()) * 0.68;
-        QRadialGradient spot(cursorPos, spotR);
-        int s1 = std::clamp(int((56 + 40 * hoverMix) * specScale), 0, 220);
-        int s2 = std::clamp(int((22 + 22 * hoverMix) * specScale), 0, 160);
-        spot.setColorAt(0.0, blendColors(cCursor, QColor(255, 255, 255), 0.60, s1));
-        spot.setColorAt(0.4, QColor(cCursor.red(), cCursor.green(), cCursor.blue(), s2));
-        spot.setColorAt(1.0, QColor(255, 255, 255, 0));
-        p.fillRect(rect, spot);
-    }
-
-    // 5. Внутренний купольный блик (Specular Crown)
-    if (specScale > 0.02 && !vp.highContrast) {
-        QLinearGradient crown(0, rect.top(), 0, rect.top() + rect.height() * 0.36);
-        int c1 = std::clamp(int((38 + 34 * hoverMix) * specScale), 0, 220);
-        int c2 = std::clamp(int((10 + 12 * hoverMix) * specScale), 0, 150);
-        crown.setColorAt(0.0, blendColors(cTL, QColor(255, 255, 255), 0.70, c1));
-        crown.setColorAt(0.45, blendColors(cMid, QColor(255, 255, 255), 0.55, c2));
-        crown.setColorAt(1.0, QColor(255, 255, 255, 0));
-        p.fillRect(QRectF(rect.left(), rect.top(), rect.width(), rect.height() * 0.36), crown);
-    }
-
-    p.restore();
-
-    // 6. Внутренняя преломляющая кромка
-    QRectF innerLip = rect.adjusted(1.1, 1.1, -1.1, -1.1);
-    QLinearGradient lipGrad(innerLip.topLeft(), innerLip.bottomRight());
-    lipGrad.setColorAt(0.0, blendColors(cTL, QColor(255, 255, 255), 0.55, std::clamp(int((28 + 36 * hoverMix) * borderScale), 0, 255)));
-    lipGrad.setColorAt(1.0, QColor(cBR.red(), cBR.green(), cBR.blue(), std::clamp(int((14 + 22 * hoverMix) * borderScale), 0, 255)));
-    p.setPen(QPen(QBrush(lipGrad), 0.75));
-    p.setBrush(Qt::NoBrush);
-    p.drawRoundedRect(innerLip, std::max(1.0, radius - 1.1), std::max(1.0, radius - 1.1));
-
-    // 7. Градиентная рамка (светлее сверху-слева, темнее снизу-справа)
-    QPointF gradStart = allowCursorLight
-        ? QPointF(rect.left() * 0.65 + cursorPos.x() * 0.35,
-                  rect.top() * 0.65 + cursorPos.y() * 0.35)
-        : rect.topLeft();
-    QLinearGradient rimGrad(gradStart, rect.bottomRight());
-    int aTopLeft = std::clamp(int((115 + 75 * hoverMix) * borderScale), 20, 255);
-    int aMid = std::clamp(int((62 + 58 * hoverMix) * borderScale), 15, 245);
-    int aBotRight = std::clamp(int((36 + 44 * hoverMix) * borderScale), 10, 220);
-
-    if (vp.highContrast) {
-        rimGrad.setColorAt(0.0, QColor(255, 255, 255, 250));
-        rimGrad.setColorAt(1.0, QColor(56, 189, 248, 240));
-    } else {
-        rimGrad.setColorAt(0.0, blendColors(cTL, QColor(255, 255, 255), 0.55, aTopLeft));
-        rimGrad.setColorAt(0.5, QColor(cMid.red(), cMid.green(), cMid.blue(), aMid));
-        rimGrad.setColorAt(1.0, blendColors(cBR, QColor(15, 23, 42), 0.35, aBotRight));
-    }
-
-    p.setPen(QPen(QBrush(rimGrad), hasFocus ? std::max(1.5, penWidth + 0.4) : penWidth));
+    p.setPen(Qt::NoPen);
+    p.setBrush(baseBg);
     p.drawRoundedRect(rect, radius, radius);
 
-    if (hasFocus && !isDisabled) {
-        QColor focusCol = bg ? bg->fixedAccentColor() : QColor(56, 189, 248);
-        focusCol.setAlpha(200);
-        p.setPen(QPen(focusCol, 1.4, Qt::SolidLine));
-        p.drawRoundedRect(rect.adjusted(-0.8, -0.8, 0.8, 0.8), radius + 0.8, radius + 0.8);
+    // 3. Crisp 1px Minimalist Border
+    QColor borderColor;
+    if (vp.highContrast) {
+        borderColor = hasFocus ? accent : QColor(255, 255, 255, 200);
+    } else if (light) {
+        borderColor = hasFocus ? accent : blendColors(QColor(226, 232, 240), accent, hMix * 0.6);
+    } else {
+        QColor normalBorder(255, 255, 255, 22);
+        borderColor = hasFocus ? accent : blendColors(normalBorder, accent, hMix * 0.75);
     }
+    double penWidth = hasFocus ? 1.5 : 1.0;
+    p.setPen(QPen(borderColor, penWidth));
+    p.setBrush(Qt::NoBrush);
+    p.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius);
 }
 
 // Слайдер с дебаунсом 65 мс, числовым индикатором и сбросом к значению по умолчанию по ДВОЙНОМУ КЛИКУ
@@ -717,10 +610,17 @@ public:
         tickTimer = new QTimer(this);
         connect(tickTimer, &QTimer::timeout, this, [this]() {
             bool anyActive = false;
+            VisualParams vp{};
+            bool vpReady = false;
+
             for (auto it = surfaces.begin(); it != surfaces.end(); ++it) {
                 QWidget *k = it.key();
-                Ton618GlWidget *bg = findBackdropTon618(k);
-                VisualParams vp = bg ? bg->visuals() : VisualParams{};
+                if (!k) continue;
+                if (!vpReady) {
+                    Ton618GlWidget *bg = findBackdropTon618(k);
+                    vp = bg ? bg->visuals() : VisualParams{};
+                    vpReady = true;
+                }
                 bool stepped = it.value().hover.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);
                 if (stepped || it.value().mouseDirty) {
                     it.value().mouseDirty = false;
@@ -730,8 +630,12 @@ public:
             }
             for (auto it = switches.begin(); it != switches.end(); ++it) {
                 QCheckBox *k = it.key();
-                Ton618GlWidget *bg = findBackdropTon618(k);
-                VisualParams vp = bg ? bg->visuals() : VisualParams{};
+                if (!k) continue;
+                if (!vpReady) {
+                    Ton618GlWidget *bg = findBackdropTon618(k);
+                    vp = bg ? bg->visuals() : VisualParams{};
+                    vpReady = true;
+                }
                 bool s1 = it.value().pos.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);
                 bool s2 = it.value().pressStretch.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);
                 bool s3 = it.value().hover.step(0.016, vp.reducedMotion, vp.animSpeedPct, vp.animStyle);

@@ -69,7 +69,12 @@ target_link_libraries(mqblox PRIVATE
 include(CheckIPOSupported)
 check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
 if(ipo_supported)
+    message(STATUS "Interprocedural Optimization (IPO/LTO) enabled for Release builds")
     set_property(TARGET mqblox mqblox_core PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+    set_property(TARGET mqblox mqblox_core PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
+    set_property(TARGET mqblox mqblox_core PROPERTY INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL TRUE)
+else()
+    message(STATUS "Interprocedural Optimization (IPO/LTO) not supported: ${ipo_error}")
 endif()
 
 foreach(tgt mqblox_core mqblox)
@@ -97,8 +102,8 @@ install(DIRECTORY resources/icons/hicolor/ DESTINATION ${CMAKE_INSTALL_DATADIR}/
 install(DIRECTORY shims/ DESTINATION ${CMAKE_INSTALL_DATADIR}/mqblox/shims
         PATTERN "build" EXCLUDE
         PATTERN "*.o" EXCLUDE
-        PATTERN "*.dylib" EXCLUDE)
-install(FILES shims/build_debug_shim.sh
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+        PATTERN "*.dylib" EXCLUDE
+        PATTERN "build_debug_shim.sh" EXCLUDE)
+install(PROGRAMS shims/build_debug_shim.sh
         DESTINATION ${CMAKE_INSTALL_DATADIR}/mqblox/shims)
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/${PROJECT_NAME})

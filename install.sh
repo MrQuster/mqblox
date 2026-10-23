@@ -8,6 +8,7 @@ APP_NAME="mqblox"
 MODE="install"
 PREFIX="${PREFIX:-$HOME/.local}"
 RELEASE_TAG=""
+PURGE_DATA="false"
 
 usage() {
   cat <<'EOF'
@@ -22,6 +23,7 @@ Options:
   --prefix <dir>        Installation prefix (default: ~/.local, or /usr/local with --system)
   --system              Install into /usr/local (requires root/sudo)
   --tag <vX.Y.Z|latest> Download and install a versioned tarball from GitHub Releases
+  --purge               Remove user configs and caches during uninstall (~/.config/mqblox, etc.)
   -h, --help            Show this help message
 EOF
 }
@@ -43,6 +45,10 @@ while [[ $# -gt 0 ]]; do
     --tag)
       RELEASE_TAG="$2"
       shift 2
+      ;;
+    --purge)
+      PURGE_DATA="true"
+      shift
       ;;
     -h|--help)
       usage
@@ -80,7 +86,19 @@ check_dependencies() {
     missing+=("lld")
   fi
 
-  if ! command -v qmake6 >/dev/null 2>&1 && ! command -v qmake >/dev/null 2>&1 && [[ ! -d /usr/lib/cmake/Qt6 && ! -d /usr/lib64/cmake/Qt6 ]]; then
+  local has_qt6=false
+  for qcandidate in qmake6 qmake /usr/lib/qt6/bin/qmake /usr/lib64/qt6/bin/qmake; do
+    if command -v "$qcandidate" >/dev/null 2>&1 || [[ -x "$qcandidate" ]]; then
+      has_qt6=true
+      break
+    fi
+  done
+  if [[ "$has_qt6" == "false" ]]; then
+    if [[ -d /usr/lib/cmake/Qt6 || -d /usr/lib64/cmake/Qt6 || -d /usr/lib/x86_64-linux-gnu/cmake/Qt6 || -d /usr/lib/aarch64-linux-gnu/cmake/Qt6 ]]; then
+      has_qt6=true
+    fi
+  fi
+  if [[ "$has_qt6" == "false" ]]; then
     missing+=("qt6-base/qt6-svg")
   fi
 
@@ -88,13 +106,13 @@ check_dependencies() {
     printf '[!] Missing build/runtime dependencies: %s\n' "${missing[*]}" >&2
     case "$distro" in
       arch|cachyos|endeavouros|manjaro)
-        printf '    Install on Arch Linux: sudo pacman -S --needed base-devel cmake ninja qt6-base qt6-svg qt6-wayland clang lld unzip vulkan-icd-loader\n' >&2
+        printf '    Install on Arch Linux: sudo pacman -S --needed base-devel cmake ninja qt6-base qt6-svg qt6-wayland clang lld unzip vulkan-icd-loader hicolor-icon-theme\n' >&2
         ;;
       fedora|nobara)
-        printf '    Install on Fedora: sudo dnf install -y cmake ninja-build gcc-c++ qt6-qtbase-devel qt6-qtsvg-devel clang lld unzip vulkan-loader\n' >&2
+        printf '    Install on Fedora: sudo dnf install -y cmake ninja-build gcc-c++ qt6-qtbase-devel qt6-qtsvg-devel qt6-qtwayland clang lld unzip vulkan-loader mesa-libGL-devel\n' >&2
         ;;
       debian|ubuntu|linuxmint|pop)
-        printf '    Install on Debian/Ubuntu: sudo apt install -y build-essential cmake ninja-build qt6-base-dev libqt6svg6-dev clang lld unzip libvulkan1\n' >&2
+        printf '    Install on Debian/Ubuntu: sudo apt install -y build-essential cmake ninja-build qt6-base-dev libqt6svg6-dev qt6-wayland clang lld unzip libvulkan1 libgl-dev\n' >&2
         ;;
       *)
         printf '    Please install CMake, Qt6 (Core, Gui, Widgets, Network, OpenGL, Svg, Test), clang, lld, and unzip.\n' >&2
@@ -109,6 +127,9 @@ refresh_desktop_caches() {
   if command -v update-desktop-database >/dev/null 2>&1 && [[ -d "$share_dir/applications" ]]; then
     update-desktop-database "$share_dir/applications" 2>/dev/null || true
   fi
+  if command -v update-mime-database >/dev/null 2>&1 && [[ -d "$share_dir/mime" ]]; then
+    update-mime-database "$share_dir/mime" 2>/dev/null || true
+  fi
   if command -v gtk-update-icon-cache >/dev/null 2>&1 && [[ -d "$share_dir/icons/hicolor" ]]; then
     gtk-update-icon-cache -q -t -f "$share_dir/icons/hicolor" 2>/dev/null || true
   fi
@@ -121,12 +142,23 @@ refresh_desktop_caches() {
 do_uninstall() {
   printf '[1/2] Removing MqBlox files from %s ...\n' "$PREFIX"
   rm -f -- "$PREFIX/bin/mqblox" "$PREFIX/bin/mqblox-bin"
+  if [[ -f "$PREFIX/bin/darling" ]] && grep -qF "MacOBlox" "$PREFIX/bin/darling" 2>/dev/null; then
+    rm -f -- "$PREFIX/bin/darling"
+    printf '      Removed Darling Flatpak bridge -> %s/bin/darling\n' "$PREFIX"
+  fi
   rm -rf -- "$PREFIX/share/mqblox" "$PREFIX/share/licenses/mqblox"
   rm -f -- "$PREFIX/share/applications/mqblox.desktop"
   rm -f -- "$PREFIX/share/icons/hicolor/scalable/apps/mqblox.svg"
   for sz in 16 22 24 32 48 64 128 256 512; do
     rm -f -- "$PREFIX/share/icons/hicolor/${sz}x${sz}/apps/mqblox.png"
   done
+  if [[ "$PURGE_DATA" == "true" ]]; then
+    local cfg_dir="${XDG_CONFIG_HOME:-$HOME/.config}/mqblox"
+    local data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/mqblox"
+    local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/mqblox"
+    rm -rf -- "$cfg_dir" "$data_dir" "$cache_dir"
+    printf '      Purged user configurations and caches (%s, %s, %s)\n' "$cfg_dir" "$data_dir" "$cache_dir"
+  fi
   printf '[2/2] Refreshing desktop and icon caches...\n'
   refresh_desktop_caches
   printf '[OK] MqBlox uninstalled cleanly from %s.\n' "$PREFIX"
@@ -195,8 +227,8 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir "$WORK_SRC/build" --output-on-failure
 printf '[3/4] Installing MqBlox to %s ...\n' "$PREFIX"
 cmake --install "$WORK_SRC/build"
 
-# Ensure Exec in installed .desktop points cleanly to the installed binary if ~/.local/bin is not in system PATH
-if [[ "$PREFIX" == "$HOME/.local" && -f "$PREFIX/share/applications/mqblox.desktop" ]]; then
+# Ensure Exec in installed .desktop points cleanly to the installed binary if not in standard /usr PATH
+if [[ "$PREFIX" != "/usr" && -f "$PREFIX/share/applications/mqblox.desktop" ]]; then
   sed -i "s|^Exec=mqblox %u$|Exec=$PREFIX/bin/mqblox %u|" "$PREFIX/share/applications/mqblox.desktop"
 fi
 
@@ -205,6 +237,7 @@ if [[ ! -x /usr/bin/darling && ! -x /usr/local/bin/darling ]] && command -v flat
   mkdir -p "$PREFIX/bin"
   cat > "$PREFIX/bin/darling" <<'DARLING_EOF'
 #!/usr/bin/env bash
+# MqBlox Darling Flatpak Bridge
 set -euo pipefail
 if [[ -x /usr/bin/darling ]]; then
   exec /usr/bin/darling "$@"
@@ -215,7 +248,7 @@ if [[ "${1:-}" == "shutdown" ]]; then
   exit 0
 fi
 exec flatpak run --filesystem=home --command=sh xyz.narez.MacOBlox -c '
-  export DPREFIX="${DPREFIX:-$XDG_DATA_HOME/darling}"
+  export DPREFIX="${DPREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/darling}"
   export LD_PRELOAD=/app/lib/macoblox/darling-noroot.so
   export MACOBLOX_PID1_DYLIB=/app/lib/macoblox/launchd_pid1.dylib
   export EGL_PLATFORM=x11

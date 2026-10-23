@@ -24,7 +24,10 @@ public:
     void setActiveAccountId(const QString &id) { m_activeAccountId = id; }
     AccountProfile *activeAccount();
 
-    QString mqDir() const;
+    QString configDir() const;
+    QString dataDir() const;
+    QString cacheDir() const;
+    QString mqDir() const; // backward-compatibility alias to dataDir()
     QString accountsDir() const;
     QString macobloxDataDir() const;
     QString robloxAppDir() const;

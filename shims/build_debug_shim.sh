@@ -11,7 +11,7 @@ if [[ -z $sysroot ]]; then
   for candidate in \
     /usr/libexec/darling \
     /usr/local/libexec/darling \
-    "$HOME/.local/share/flatpak/app/xyz.narez.MacOBlox/current/active/files/libexec/darling" \
+    "${XDG_DATA_HOME:-$HOME/.local/share}/flatpak/app/xyz.narez.MacOBlox/current/active/files/libexec/darling" \
     /var/lib/flatpak/app/xyz.narez.MacOBlox/current/active/files/libexec/darling; do
     if [[ -d $candidate ]]; then
       sysroot=$candidate
@@ -45,7 +45,8 @@ for name in CoreML CoreHaptics DeviceCheck; do
   mkdir -p "$framework/Versions/A"
   clang -target x86_64-apple-darwin -fuse-ld=lld \
     -isysroot "$sysroot" -mmacosx-version-min=11.0 \
-    -dynamiclib -fno-objc-arc \
+    -O2 -dynamiclib -fno-objc-arc \
+    -Wl,-undefined,dynamic_lookup \
     -install_name "/System/Library/Frameworks/$name.framework/Versions/A/$name" \
     "$project_dir/frameworks/$name.m" -lobjc -framework CoreFoundation \
     -o "$framework/Versions/A/$name"

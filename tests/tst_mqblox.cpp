@@ -407,6 +407,105 @@ private slots:
         QCOMPARE(static_cast<quint8>(resp[2]), static_cast<quint8>(0x81));
     }
 
+    void testXdgBaseDirectoryCompliance() {
+        const QByteArray savedTestDir = qgetenv("MQBLOX_TEST_DIR");
+        qunsetenv("MQBLOX_TEST_DIR");
+
+        // Test custom XDG variables
+        QTemporaryDir customXdg;
+        QVERIFY(customXdg.isValid());
+        const QString customConfig = customXdg.path() + "/custom_cfg";
+        const QString customData = customXdg.path() + "/custom_data";
+        const QString customCache = customXdg.path() + "/custom_cache";
+
+        qputenv("XDG_CONFIG_HOME", customConfig.toUtf8());
+        qputenv("XDG_DATA_HOME", customData.toUtf8());
+        qputenv("XDG_CACHE_HOME", customCache.toUtf8());
+
+        // Create player in custom data dir to verify preference
+        QDir().mkpath(customData + "/macoblox/RobloxPlayer.app/Contents/MacOS");
+        QFile playerBin(customData + "/macoblox/RobloxPlayer.app/Contents/MacOS/RobloxPlayer");
+        QVERIFY(playerBin.open(QIODevice::WriteOnly));
+        playerBin.close();
+
+        SettingsManager mgrCustom;
+        QCOMPARE(mgrCustom.configDir(), customConfig + "/mqblox");
+        QCOMPARE(mgrCustom.dataDir(), customData + "/mqblox");
+        QCOMPARE(mgrCustom.cacheDir(), customCache + "/mqblox");
+        QCOMPARE(mgrCustom.mqDir(), customData + "/mqblox");
+        QCOMPARE(mgrCustom.accountsDir(), customData + "/mqblox/accounts");
+        QCOMPARE(mgrCustom.macobloxDataDir(), customData + "/macoblox");
+
+        // Test default XDG fallback when unset
+        qunsetenv("XDG_CONFIG_HOME");
+        qunsetenv("XDG_DATA_HOME");
+        qunsetenv("XDG_CACHE_HOME");
+
+        SettingsManager mgrDefault;
+        QCOMPARE(mgrDefault.configDir(), QDir::homePath() + "/.config/mqblox");
+        QCOMPARE(mgrDefault.dataDir(), QDir::homePath() + "/.local/share/mqblox");
+        QCOMPARE(mgrDefault.cacheDir(), QDir::homePath() + "/.cache/mqblox");
+        QCOMPARE(mgrDefault.mqDir(), QDir::homePath() + "/.local/share/mqblox");
+        QCOMPARE(mgrDefault.accountsDir(), QDir::homePath() + "/.local/share/mqblox/accounts");
+        QVERIFY(mgrDefault.macobloxDataDir() == QDir::homePath() + "/.local/share/macoblox" ||
+                mgrDefault.macobloxDataDir() == QDir::homePath() + "/.var/app/xyz.narez.MacOBlox/data/macoblox");
+
+        // Restore test dir
+        if (!savedTestDir.isEmpty()) {
+            qputenv("MQBLOX_TEST_DIR", savedTestDir);
+        }
+    }
+
+    void testRobloxExecutionPermissionsAndLaunchScript() {
+        SettingsManager mgr;
+        const QString appDir = mgr.robloxAppDir();
+        const QString macOsDir = appDir + "/Contents/MacOS";
+        QDir().mkpath(macOsDir);
+
+        const QString mainBin = macOsDir + "/RobloxPlayer";
+        const QString helperBin = macOsDir + "/RobloxCrashHandler";
+
+        // Create dummy files with 0644 (no execute permissions)
+        {
+            QFile f1(mainBin);
+            QVERIFY(f1.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            f1.write("#!/bin/sh\nexit 0\n");
+            f1.close();
+            QFile::setPermissions(mainBin, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                           QFileDevice::ReadGroup | QFileDevice::ReadOther);
+
+            QFile f2(helperBin);
+            QVERIFY(f2.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            f2.write("#!/bin/sh\nexit 0\n");
+            f2.close();
+            QFile::setPermissions(helperBin, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                                             QFileDevice::ReadGroup | QFileDevice::ReadOther);
+        }
+
+        // Before launchRoblox: isExecutable() is false
+        QVERIFY(!QFileInfo(mainBin).isExecutable());
+        QVERIFY(!QFileInfo(helperBin).isExecutable());
+
+        DarlingController ctrl(&mgr);
+        // Invoking launchRoblox ensures execute permissions even if darling is not ready to start
+        ctrl.launchRoblox();
+
+        // Verify both main binary and helper are now executable (0755)
+        QVERIFY(QFileInfo(mainBin).isExecutable());
+        QVERIFY(QFileInfo(helperBin).isExecutable());
+
+        // Test framework search path in buildDarlingLaunchScript
+        const QString fwDir = mgr.macobloxDataDir() + "/frameworks";
+        QDir().mkpath(fwDir);
+        const QString scriptWithFw = ctrl.buildDarlingLaunchScript();
+        QVERIFY(scriptWithFw.contains("export DYLD_FRAMEWORK_PATH="));
+        QVERIFY(scriptWithFw.contains("/Volumes/SystemRoot"));
+
+        // Clean up
+        QDir(appDir).removeRecursively();
+        QDir(fwDir).removeRecursively();
+    }
+
 private:
     QTemporaryDir m_tmpDir;
 };

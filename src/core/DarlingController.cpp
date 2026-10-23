@@ -96,6 +96,19 @@ QString findDarlingBin() {
     return QStandardPaths::findExecutable("darling", searchPaths);
 }
 
+void ensureRobloxExecPermissions(const QString &robloxAppDir) {
+    const QString macOsDir = robloxAppDir + "/Contents/MacOS";
+    const QDir dir(macOsDir);
+    if (!dir.exists()) return;
+    const auto entries = dir.entryInfoList(QDir::Files);
+    for (const QFileInfo &info : entries) {
+        QFile::setPermissions(info.filePath(),
+            QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner |
+            QFileDevice::ReadGroup | QFileDevice::ExeGroup |
+            QFileDevice::ReadOther | QFileDevice::ExeOther);
+    }
+}
+
 } // namespace
 
 QString DarlingController::darlingMacOBloxUserDir(const QString &darlingPrefix) {
@@ -177,6 +190,19 @@ void DarlingController::detectHardwareAsync() {
         }
     }
 
+    // Direct sysfs DRM vendor fallback
+    QDir drmDir("/sys/class/drm");
+    for (const QString &card : drmDir.entryList({"card*"}, QDir::Dirs | QDir::NoDotAndDotDot)) {
+        if (card.contains('-')) continue;
+        QFile vFile(drmDir.filePath(card + "/device/vendor"));
+        if (vFile.open(QIODevice::ReadOnly)) {
+            const QString vId = QString::fromLatin1(vFile.readAll()).trimmed().toLower();
+            if (vId == "0x10de") { m_gpuVendor = "nvidia"; if (m_gpuModel == "GPU Linux") m_gpuModel = "NVIDIA GPU"; break; }
+            if (vId == "0x1002") { m_gpuVendor = "amd"; if (m_gpuModel == "GPU Linux") m_gpuModel = "AMD Radeon"; break; }
+            if (vId == "0x8086") { m_gpuVendor = "intel"; if (m_gpuModel == "GPU Linux") m_gpuModel = "Intel Graphics"; break; }
+        }
+    }
+
     auto *proc = new QProcess(this);
     connect(proc, &QProcess::finished, this, [this, proc](int, QProcess::ExitStatus) {
         for (const QString &line : QString::fromUtf8(proc->readAllStandardOutput()).split('\n')) {
@@ -197,16 +223,25 @@ void DarlingController::detectHardwareAsync() {
 
 QString DarlingController::shimSourceDir() const {
     const QString appDir = QCoreApplication::applicationDirPath();
-    const QStringList candidates = {
+    const QString xdgData = qEnvironmentVariable("XDG_DATA_HOME");
+    const QString baseData = !xdgData.trimmed().isEmpty() ? xdgData.trimmed() : (QDir::homePath() + "/.local/share");
+    QStringList candidates = {
         QDir::currentPath() + "/shims",
         QDir::currentPath(),
         appDir + "/../shims",
         appDir + "/shims",
         appDir + "/../share/mqblox/shims",
-        QDir::homePath() + "/.local/share/mqblox/shims",
+        baseData + "/mqblox/shims",
         "/usr/local/share/mqblox/shims",
         "/usr/share/mqblox/shims"
     };
+    const QString xdgDataDirs = qEnvironmentVariable("XDG_DATA_DIRS");
+    const QStringList extraDirs = !xdgDataDirs.trimmed().isEmpty()
+        ? xdgDataDirs.split(':', Qt::SkipEmptyParts)
+        : QStringList{"/usr/local/share", "/usr/share"};
+    for (const QString &d : extraDirs) {
+        candidates.append(d + "/mqblox/shims");
+    }
     for (const QString &dir : candidates) {
         if (QFile::exists(dir + "/libMacOBloxShims.m") && QFile::exists(dir + "/audio_hal.c")) {
             return QFileInfo(dir).canonicalFilePath();
@@ -231,11 +266,13 @@ QString DarlingController::shimDylibPath() const {
 
 EnvironmentStatus DarlingController::checkEnvironment() const {
     EnvironmentStatus st;
+    const QString xdgData = qEnvironmentVariable("XDG_DATA_HOME");
+    const QString baseData = !xdgData.trimmed().isEmpty() ? xdgData.trimmed() : (QDir::homePath() + "/.local/share");
     const QStringList searchPaths = {
         QDir::homePath() + "/.local/bin",
         "/usr/local/bin",
         "/usr/bin",
-        QDir::homePath() + "/.local/share/flatpak/app/xyz.narez.MacOBlox/current/active/files/bin"
+        baseData + "/flatpak/app/xyz.narez.MacOBlox/current/active/files/bin"
     };
     st.hasDarling = !QStandardPaths::findExecutable("darling").isEmpty() ||
                     !QStandardPaths::findExecutable("darling", searchPaths).isEmpty();
@@ -340,6 +377,11 @@ QString DarlingController::buildDarlingLaunchScript(const QString &targetUri) co
     envExports << QString("export DYLD_INSERT_LIBRARIES=%1").arg(shellSingleQuote(dylibInDarling));
     envExports << QString("export DYLD_LIBRARY_PATH=%1:%2")
                       .arg(shellSingleQuote(dylibDir), shellSingleQuote(appExecutableDir));
+    const QString hostFwDir = m_settingsMgr->macobloxDataDir() + "/frameworks";
+    if (QDir(hostFwDir).exists()) {
+        envExports << QString("export DYLD_FRAMEWORK_PATH=%1")
+                          .arg(shellSingleQuote("/Volumes/SystemRoot" + hostFwDir));
+    }
     envExports << QString("export MACOBLOX_VRAM_BYTES=%1").arg(vram);
     envExports << QString("export MACOBLOX_VSYNC=%1").arg((s.vsyncOff || s.unlimitedFps) ? "0" : "1");
 
@@ -378,6 +420,19 @@ QString DarlingController::buildDarlingLaunchScript(const QString &targetUri) co
         }
     }
     envExports << QString("export MACOBLOX_GRAPHICS_BACKEND=%1").arg(shellSingleQuote(backendStr));
+    envExports << QString("export MACOBLOX_CPU_THREADS=%1").arg(m_cpuThreads);
+    if (m_gpuVendor == "nvidia") {
+        envExports << "export __NV_PRIME_RENDER_OFFLOAD=1";
+        envExports << "export __GLX_VENDOR_LIBRARY_NAME=nvidia";
+        envExports << "export __VK_LAYER_NV_optimus=NVIDIA_only";
+    } else if (m_gpuVendor == "amd") {
+        envExports << "export DRI_PRIME=1";
+        envExports << "export mesa_glthread=true";
+        envExports << "export RADV_PERFTEST=aco";
+    } else if (m_gpuVendor == "intel") {
+        envExports << "export mesa_glthread=true";
+    }
+
     if (backendStr == "vulkan") {
         envExports << "export MESA_LOADER_DRIVER_OVERRIDE=zink";
         envExports << "export GALLIUM_DRIVER=zink";
@@ -725,6 +780,7 @@ void DarlingController::launchRoblox(const QString &customUri) {
     m_inActivePlace = false;
     m_settingsMgr->saveAll();
 
+    ensureRobloxExecPermissions(m_settingsMgr->robloxAppDir());
     const EnvironmentStatus st = checkEnvironment();
     if (!st.hasDarling) {
         const QString msg = "[⚠️] Darling не установлен в системе. Откройте «Мастер установки и обновления».";
@@ -987,6 +1043,7 @@ void DarlingController::stepDownloadOrUpdateRoblox() {
         const QString installedVer = readInstalledRobloxVersion(m_settingsMgr->robloxAppDir());
         if (!installedVer.isEmpty() && installedVer == version &&
             QFile::exists(m_settingsMgr->robloxAppDir() + "/Contents/MacOS/RobloxPlayer")) {
+            ensureRobloxExecPermissions(m_settingsMgr->robloxAppDir());
             m_settingsMgr->saveAll();
             m_wizardBusy = false;
             const QString msg = QString("Шим собран, клиент Roblox %1 уже актуален.").arg(version);
@@ -1082,11 +1139,7 @@ void DarlingController::stepDownloadOrUpdateRoblox() {
                         QDir().rename(extractDir + "/RobloxPlayer.app", appDir);
                         QDir(extractDir).removeRecursively();
 
-                        const QString robloxExec = appDir + "/Contents/MacOS/RobloxPlayer";
-                        QFile::setPermissions(robloxExec,
-                            QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner |
-                            QFileDevice::ReadGroup | QFileDevice::ExeGroup |
-                            QFileDevice::ReadOther | QFileDevice::ExeOther);
+                        ensureRobloxExecPermissions(appDir);
 
                         QMetaObject::invokeMethod(this, [this, version]() {
                             m_settingsMgr->saveAll();

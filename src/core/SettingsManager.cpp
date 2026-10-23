@@ -41,28 +41,59 @@ static bool writeFileIfChanged(const QString &filePath, const QByteArray &newByt
 }
 
 SettingsManager::SettingsManager() {
-    QDir().mkpath(mqDir());
+    QDir().mkpath(configDir());
+    QDir().mkpath(dataDir());
+    QDir().mkpath(cacheDir());
     QDir().mkpath(accountsDir());
-    QDir().mkpath(mqDir() + "/profiles");
+    QDir().mkpath(dataDir() + "/profiles");
     QDir().mkpath(macobloxDataDir());
     m_accounts.push_back(AccountProfile{});
 }
 
-QString SettingsManager::mqDir() const {
+QString SettingsManager::configDir() const {
+    const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
+    if (!testDir.isEmpty()) return testDir + "/config";
+    const QString xdgConfig = qEnvironmentVariable("XDG_CONFIG_HOME");
+    if (!xdgConfig.trimmed().isEmpty()) {
+        return xdgConfig.trimmed() + "/mqblox";
+    }
+    return QDir::homePath() + "/.config/mqblox";
+}
+
+QString SettingsManager::dataDir() const {
     const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
     if (!testDir.isEmpty()) return testDir + "/mqblox";
+    const QString xdgData = qEnvironmentVariable("XDG_DATA_HOME");
+    if (!xdgData.trimmed().isEmpty()) {
+        return xdgData.trimmed() + "/mqblox";
+    }
     return QDir::homePath() + "/.local/share/mqblox";
 }
 
+QString SettingsManager::cacheDir() const {
+    const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
+    if (!testDir.isEmpty()) return testDir + "/cache";
+    const QString xdgCache = qEnvironmentVariable("XDG_CACHE_HOME");
+    if (!xdgCache.trimmed().isEmpty()) {
+        return xdgCache.trimmed() + "/mqblox";
+    }
+    return QDir::homePath() + "/.cache/mqblox";
+}
+
+QString SettingsManager::mqDir() const {
+    return dataDir();
+}
+
 QString SettingsManager::accountsDir() const {
-    return mqDir() + "/accounts";
+    return dataDir() + "/accounts";
 }
 
 QString SettingsManager::macobloxDataDir() const {
     const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
     if (!testDir.isEmpty()) return testDir + "/macoblox";
-    const QString xdgData = qEnvironmentVariable("XDG_DATA_HOME", QDir::homePath() + "/.local/share");
-    const QString localDir = xdgData + "/macoblox";
+    const QString xdgData = qEnvironmentVariable("XDG_DATA_HOME");
+    const QString baseData = !xdgData.trimmed().isEmpty() ? xdgData.trimmed() : (QDir::homePath() + "/.local/share");
+    const QString localDir = baseData + "/macoblox";
     if (QFileInfo::exists(localDir + "/RobloxPlayer.app/Contents/MacOS/RobloxPlayer")) {
         return localDir;
     }
@@ -88,6 +119,10 @@ QString SettingsManager::darlingPrefixDir() const {
     if (!envPrefix.isEmpty()) return envPrefix;
     const QString homePrefix = QDir::homePath() + "/.darling";
     if (QDir(homePrefix).exists()) return homePrefix;
+    const QString xdgData = qEnvironmentVariable("XDG_DATA_HOME");
+    const QString baseData = !xdgData.trimmed().isEmpty() ? xdgData.trimmed() : (QDir::homePath() + "/.local/share");
+    const QString xdgPrefix = baseData + "/darling";
+    if (QDir(xdgPrefix).exists()) return xdgPrefix;
     const QString flatpakPrefix = QDir::homePath() + "/.var/app/xyz.narez.MacOBlox/data/darling";
     if (QDir(flatpakPrefix).exists()) return flatpakPrefix;
     return homePrefix;
@@ -130,12 +165,11 @@ QString SettingsManager::parsePlaceUri(const QString &input) {
 }
 
 void SettingsManager::loadAll() {
-    const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
-    const QString cfgDir = testDir.isEmpty() ? (QDir::homePath() + "/.config/mqblox") : (testDir + "/config");
+    const QString cfgDir = configDir();
     const QString cfgV36 = cfgDir + "/settings_v36.json";
     const QString cfgV35 = cfgDir + "/settings_v35.json";
     const QString cfgV34 = cfgDir + "/settings_v34.json";
-    const QString legacyV13 = mqDir() + "/settings_v13.json";
+    const QString legacyV13 = dataDir() + "/settings_v13.json";
 
     QString loadPath = legacyV13;
     if (QFileInfo::exists(cfgV36)) loadPath = cfgV36;
@@ -203,12 +237,11 @@ bool SettingsManager::saveAll(QString *errMsg) {
 
     QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Indented);
 
-    const QString testDir = qEnvironmentVariable("MQBLOX_TEST_DIR");
-    const QString cfgDir = testDir.isEmpty() ? (QDir::homePath() + "/.config/mqblox") : (testDir + "/config");
+    const QString cfgDir = configDir();
     QDir().mkpath(cfgDir);
     for (const QString &target : {
              cfgDir + "/settings_v36.json",
-             mqDir() + "/settings_v13.json"}) {
+             dataDir() + "/settings_v13.json"}) {
         if (!writeFileIfChanged(target, payload, errMsg)) {
             return false;
         }

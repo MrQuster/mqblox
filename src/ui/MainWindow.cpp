@@ -92,9 +92,19 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     m_settingsMgr.loadAll();
     m_darlingCtrl = new DarlingController(&m_settingsMgr, this);
 
-    setWindowTitle(tr("MqBlox × MacOBlox v36.0 [HyperOS 4 Liquid Glass • Darling]"));
-    QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
-    if (QFile::exists(iconFile)) setWindowIcon(QIcon(iconFile));
+    setWindowTitle(tr("MqBlox × MacOBlox v36.2 [Darling Native Manager]"));
+    QIcon appIcon = QIcon::fromTheme("mqblox");
+    if (appIcon.isNull()) {
+        const QString xdgData = qEnvironmentVariable("XDG_DATA_HOME");
+        const QString baseData = !xdgData.trimmed().isEmpty() ? xdgData.trimmed() : (QDir::homePath() + "/.local/share");
+        const QString iconFile = baseData + "/icons/hicolor/scalable/apps/mqblox.svg";
+        if (QFile::exists(iconFile)) {
+            appIcon = QIcon(iconFile);
+        } else {
+            appIcon = QIcon(":/mqblox.svg");
+        }
+    }
+    setWindowIcon(appIcon);
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
     setAttribute(Qt::WA_TranslucentBackground);
     setMouseTracking(true);
@@ -282,7 +292,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
 void MainWindow::initTrayAndShortcuts() {
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         m_trayIcon = new QSystemTrayIcon(windowIcon(), this);
-        m_trayIcon->setToolTip(tr("MqBlox × MacOBlox v36.0 — HyperOS 4 Liquid Glass"));
+        m_trayIcon->setToolTip(tr("MqBlox × MacOBlox v36.2 — Darling Native Linux Manager"));
 
         auto *menu = new QMenu(this);
         menu->setStyleSheet(
@@ -306,13 +316,17 @@ void MainWindow::initTrayAndShortcuts() {
 
         m_trayIcon->setContextMenu(menu);
         connect(m_trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason r) {
-            if (r == QSystemTrayIcon::Trigger || r == QSystemTrayIcon::DoubleClick) {
+            if (r == QSystemTrayIcon::Trigger) {
                 if (isVisible() && !isMinimized()) hide();
                 else {
                     showNormal();
                     raise();
                     activateWindow();
                 }
+            } else if (r == QSystemTrayIcon::DoubleClick) {
+                showNormal();
+                raise();
+                activateWindow();
             }
         });
         m_trayIcon->show();
@@ -361,8 +375,8 @@ void MainWindow::initUi() {
     tCol->setSpacing(1);
     auto *logoLbl = new QLabel("✦ MqBlox × MacOBlox");
     logoLbl->setObjectName("LogoText");
-    m_pinHintLbl = new QLabel("💧 HyperOS 4 • Darling macOS");
-    m_pinHintLbl->setStyleSheet("font-size: 10px; font-weight: 800; color: #38BDF8;");
+    m_pinHintLbl = new QLabel("Darling macOS Runtime");
+    m_pinHintLbl->setStyleSheet("font-size: 10px; font-weight: 700; color: #38BDF8;");
     tCol->addWidget(logoLbl);
     tCol->addWidget(m_pinHintLbl);
     hdrRow->addWidget(m_titleColWidget);
@@ -1432,18 +1446,24 @@ void MainWindow::refreshGitUpdateStatus() {
 
     auto *proc = new QProcess(this);
     proc->setWorkingDirectory(workDir);
-    connect(proc, &QProcess::finished, this, [this, proc](int code, QProcess::ExitStatus) {
-        QString out = QString::fromUtf8(proc->readAllStandardOutput()).trimmed();
+    auto finalizeLog = [this, proc](const QString &logText) {
         proc->deleteLater();
         m_updateProgressBar->setRange(0, 100);
         m_updateProgressBar->setValue(100);
-        m_lblGitVersionInfo->setText(tr("🟢 <b>MqBlox × MacOBlox v36.0 (Schema v36)</b>"));
+        m_lblGitVersionInfo->setText(tr("🟢 <b>MqBlox × MacOBlox v36.2 (Schema v36)</b>"));
         m_updateProgressBar->setFormat(tr("✓ Актуальная сборка"));
+        m_updateLogView->setPlainText(logText);
+    };
+    connect(proc, &QProcess::finished, this, [this, proc, finalizeLog](int code, QProcess::ExitStatus) {
+        QString out = QString::fromUtf8(proc->readAllStandardOutput()).trimmed();
         if (code == 0 && !out.isEmpty()) {
-            m_updateLogView->setPlainText(out);
+            finalizeLog(out);
         } else {
-            m_updateLogView->setPlainText(tr("✦ Релизная сборка MqBlox v36.0 установлена и актуальна.\n✦ Внутренний рантайм Darling & шимы libMacOBloxShims готовы."));
+            finalizeLog(tr("✦ Релизная сборка MqBlox v36.2 установлена и актуальна.\n✦ Внутренний рантайм Darling & шимы libMacOBloxShims готовы."));
         }
+    });
+    connect(proc, &QProcess::errorOccurred, this, [this, finalizeLog](QProcess::ProcessError) {
+        finalizeLog(tr("✦ Релизная сборка MqBlox v36.2 установлена и актуальна.\n✦ Внутренний рантайм Darling & шимы libMacOBloxShims готовы."));
     });
     proc->start("git", {"log", "-n", "8", "--pretty=format:✦ [%h] %s (%cr)"});
 }
@@ -1986,25 +2006,30 @@ void MainWindow::switchTab(int idx) {
     }
     if (idx == 0) refreshEnvironmentAndSessionUi();
     if (idx == 5) refreshGitUpdateStatus();
+
+    VisualParams vp = m_rootCosmos ? m_rootCosmos->visuals() : VisualParams{};
+    if (vp.reducedMotion || !vp.animationsEnabled) {
+        return;
+    }
+
     if (QWidget *w = m_pages->currentWidget()) {
-        if (idx != 0) {
-            if (w->graphicsEffect()) {
+        if (w->graphicsEffect()) {
+            w->setGraphicsEffect(nullptr);
+        }
+        auto *eff = new QGraphicsOpacityEffect(w);
+        w->setGraphicsEffect(eff);
+        auto *anim = new QPropertyAnimation(eff, "opacity", eff);
+        int duration = std::clamp(int(200.0 * (100.0 / std::max(50, vp.animSpeedPct))), 60, 400);
+        anim->setDuration(duration);
+        anim->setStartValue(0.20);
+        anim->setEndValue(1.0);
+        anim->setEasingCurve(QEasingCurve::OutCubic);
+        connect(anim, &QPropertyAnimation::finished, w, [w, eff]() {
+            if (w->graphicsEffect() == eff) {
                 w->setGraphicsEffect(nullptr);
             }
-            auto *eff = new QGraphicsOpacityEffect(w);
-            w->setGraphicsEffect(eff);
-            auto *anim = new QPropertyAnimation(eff, "opacity", eff);
-            anim->setDuration(220);
-            anim->setStartValue(0.15);
-            anim->setEndValue(1.0);
-            anim->setEasingCurve(QEasingCurve::OutCubic);
-            connect(anim, &QPropertyAnimation::finished, w, [w, eff]() {
-                if (w->graphicsEffect() == eff) {
-                    w->setGraphicsEffect(nullptr);
-                }
-            });
-            anim->start(QAbstractAnimation::DeleteWhenStopped);
-        }
+        });
+        anim->start(QAbstractAnimation::DeleteWhenStopped);
     }
 }
 
