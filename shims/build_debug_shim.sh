@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export PATH="$HOME/.local/bin:$PATH"
+project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+# Output goes to MACOBLOX_BUILD_DIR when the sources are read-only (a package).
+build_dir=${MACOBLOX_BUILD_DIR:-$project_dir/build}
+# Packages put Darling's macOS root in /usr/libexec, a source build in /usr/local,
+# or user/system Flatpak in ~/.local/share/flatpak or /var/lib/flatpak.
+sysroot=${DARLING_SYSROOT:-}
+if [[ -z $sysroot ]]; then
+  for candidate in \
+    /usr/libexec/darling \
+    /usr/local/libexec/darling \
+    "$HOME/.local/share/flatpak/app/xyz.narez.MacOBlox/current/active/files/libexec/darling" \
+    /var/lib/flatpak/app/xyz.narez.MacOBlox/current/active/files/libexec/darling; do
+    if [[ -d $candidate ]]; then
+      sysroot=$candidate
+      break
+    fi
+  done
+fi
+sysroot=${sysroot:-/usr/libexec/darling}
+mkdir -p "$build_dir"
+tmp_output=$(mktemp "$build_dir/.shim.XXXXXX")
+# Memory/string functions replacing Darling's unoptimized ones: -O2 and no
+# builtins, compiled on their own (see fast_libc.c).
+clang -target x86_64-apple-darwin -isysroot "$sysroot" -mmacosx-version-min=11.0 \
+  -O2 -fno-builtin -c "$project_dir/fast_libc.c" -o "$build_dir/fast_libc.o"
+trap 'rm -f -- "$tmp_output"' EXIT
+clang -target x86_64-apple-darwin -fuse-ld=lld \
+  -isysroot "$sysroot" -mmacosx-version-min=11.0 \
+  -dynamiclib -fno-objc-arc -Wno-builtin-requires-header -Werror=incompatible-function-pointer-types \
+  -Wl,-undefined,dynamic_lookup \
+  -install_name @rpath/libMacOBloxShims.dylib \
+  "$project_dir/libMacOBloxShims.m" "$project_dir/xattr_compat.c" "$project_dir/exit_compat.c" "$project_dir/missing_symbols.c" "$project_dir/net_trace.c" "$project_dir/darling_fixes.c" "$project_dir/xfixes_raw.c" "$project_dir/dns_override.c" "$project_dir/audio_hal.c" "$project_dir/gpu_info.c" "$project_dir/gl_profile.c" "$project_dir/connectx_compat.c" "$project_dir/memory_stats.c" "$build_dir/fast_libc.o" \
+  -lobjc -lc++ -lc++abi -framework Foundation -framework AppKit \
+  -o "$tmp_output"
+mv -- "$tmp_output" "$build_dir/libMacOBloxShims.dylib"
+printf 'Built: %s\n' "$build_dir/libMacOBloxShims.dylib"
+
+# Frameworks RobloxPlayer links that Darling does not have (see frameworks/).
+# The launcher copies them into the Darling prefix.
+for name in CoreML CoreHaptics DeviceCheck; do
+  framework="$build_dir/frameworks/$name.framework"
+  mkdir -p "$framework/Versions/A"
+  clang -target x86_64-apple-darwin -fuse-ld=lld \
+    -isysroot "$sysroot" -mmacosx-version-min=11.0 \
+    -dynamiclib -fno-objc-arc \
+    -install_name "/System/Library/Frameworks/$name.framework/Versions/A/$name" \
+    "$project_dir/frameworks/$name.m" -lobjc -framework CoreFoundation \
+    -o "$framework/Versions/A/$name"
+  ln -sfn A "$framework/Versions/Current"
+  ln -sfn "Versions/Current/$name" "$framework/$name"
+done
+printf 'Built: %s\n' "$build_dir/frameworks"
