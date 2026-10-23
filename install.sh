@@ -181,6 +181,9 @@ fi
 check_dependencies
 
 printf '[1/4] Configuring & building MqBlox C++20/Qt6 launcher...\n'
+if [[ -f "$WORK_SRC/build/CMakeCache.txt" ]] && ! grep -qF "$WORK_SRC" "$WORK_SRC/build/CMakeCache.txt"; then
+  rm -rf "$WORK_SRC/build"
+fi
 cmake -S "$WORK_SRC" -B "$WORK_SRC/build" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$PREFIX"
@@ -208,15 +211,15 @@ if [[ -x /usr/bin/darling ]]; then
 elif [[ -x /usr/local/bin/darling ]]; then
   exec /usr/local/bin/darling "$@"
 fi
+if [[ "${1:-}" == "shutdown" ]]; then
+  exit 0
+fi
 exec flatpak run --filesystem=home --command=sh xyz.narez.MacOBlox -c '
   export DPREFIX="${DPREFIX:-$XDG_DATA_HOME/darling}"
   export LD_PRELOAD=/app/lib/macoblox/darling-noroot.so
   export MACOBLOX_PID1_DYLIB=/app/lib/macoblox/launchd_pid1.dylib
   export EGL_PLATFORM=x11
-  if ! pgrep -u "$(id -u)" -x darlingserver >/dev/null 2>&1; then
-    rm -f "$DPREFIX/.init.pid" "$DPREFIX/.darlingserver.sock"
-    darling shell /usr/bin/true 2>/dev/null || true
-  fi
+  rm -f "$DPREFIX/.init.pid" "$DPREFIX/.darlingserver.sock"
   exec darling "$@"
 ' sh "$@"
 DARLING_EOF

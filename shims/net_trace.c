@@ -174,7 +174,8 @@ static void check_stalls(void) {
                               "[MacOBlox UDP] STALL fd=%d has queued data, last read %llus ago\n",
                               fd, (now - last_read_time[fd]) / 1000000000ULL);
         if (length > 0) write(2, line, (size_t)length);
-        pthread_kill(reader_thread[fd], 31);
+        /* Do NOT send asynchronous SIGUSR2 (31) to reader threads in Darling;
+         * interrupting Mach RPC / dserver breaks Darling internal thread state. */
     }
 }
 

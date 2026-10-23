@@ -167,7 +167,7 @@ static int query_forwarder(const char *node, unsigned int *addresses) {
             if (send(fd, query, (size_t)length, 0) != length)
                 break;
             struct darwin_pollfd wait = {fd, 1, 0};
-            if (poll(&wait, 1, 2500) <= 0)
+            if (poll(&wait, 1, 400) <= 0)
                 continue;
             unsigned char reply[1500];
             ssize_t got = recv(fd, reply, sizeof reply, 0);

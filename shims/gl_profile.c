@@ -213,8 +213,34 @@ static unsigned int macoblox_eglChooseConfig(void *display, const int *attribute
 }
 DYLD_INTERPOSE(macoblox_eglChooseConfig, eglChooseConfig)
 
+typedef unsigned long XID;
+extern void *dlsym(void *, const char *);
+extern void *objc_getClass(const char *);
+extern void *sel_registerName(const char *);
+extern void *objc_msgSend(void *, void *, ...);
+#define X_DEFAULT_HANDLE ((void *)-2)  /* RTLD_DEFAULT */
+
+static void sync_x11_display(void *xdisplay) {
+    int (*xsync)(void *, int) = dlsym(X_DEFAULT_HANDLE, "XSync");
+    if (!xsync)
+        return;
+    if (!xdisplay) {
+        void *cls = objc_getClass("NSDisplay");
+        if (cls) {
+            void *cur = ((void *(*)(void *, void *))objc_msgSend)(cls, sel_registerName("currentDisplay"));
+            if (cur)
+                xdisplay = ((void *(*)(void *, void *))objc_msgSend)(cur, sel_registerName("display"));
+        }
+    }
+    if (xdisplay)
+        xsync(xdisplay, 0);
+}
+
 static void *macoblox_eglCreateWindowSurface(void *display, void *config, unsigned long window,
                                              const int *attributes) {
+    if (!window)
+        return 0;
+    sync_x11_display(0);
     void *surface = eglCreateWindowSurface(display, config, window, attributes);
     if (surface)
         return surface;
@@ -248,14 +274,11 @@ DYLD_INTERPOSE(macoblox_eglCreateWindowSurface, eglCreateWindowSurface)
  * with Darling's X11 backend, after this library, so it is looked up late.
  * MACOBLOX_KEEP_SUBWINDOW_VISUAL=1 keeps Darling's behaviour,
  * MACOBLOX_FORCE_SUBWINDOW_VISUAL=1 replaces every subwindow (to test). */
-typedef unsigned long XID;
-extern void *dlsym(void *, const char *);
-#define X_DEFAULT_HANDLE ((void *)-2)  /* RTLD_DEFAULT */
-
 unsigned long macoblox_replace_gl_subwindow(void *display, unsigned long parent, unsigned long old) {
     const char *keep = getenv("MACOBLOX_KEEP_SUBWINDOW_VISUAL");
     if ((keep && keep[0] == '1') || !display || !parent || !old)
         return old;
+    sync_x11_display(display);
     int (*get_attributes)(void *, XID, void *) = dlsym(X_DEFAULT_HANDLE, "XGetWindowAttributes");
     int (*default_screen)(void *) = dlsym(X_DEFAULT_HANDLE, "XDefaultScreen");
     int (*default_depth)(void *, int) = dlsym(X_DEFAULT_HANDLE, "XDefaultDepth");
@@ -294,6 +317,7 @@ unsigned long macoblox_replace_gl_subwindow(void *display, unsigned long parent,
         return old;
     map_window(display, window);
     destroy_window(display, old);
+    sync_x11_display(display);
     write(2, "[MacOBlox GL] GL subwindow uses the screen visual\n", 51);
     return window;
 }

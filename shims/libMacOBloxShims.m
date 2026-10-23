@@ -121,8 +121,27 @@ static unsigned long macoblox_cstr_length(const char* text) {
     return length;
 }
 
-static char* macoblox_fix_mesa_shader_indices(char* source,
-                                              unsigned long* source_length) {
+// Mesa rejects "uint * int" in CB indices such as CB3[(_500 & 63u) * 1 + 0]
+// (GrassVSUnified). Runs after the POSITION.w int() wrap below, whose result
+// ends in "u)) * 1 + 0]" and therefore stays int-typed and untouched here.
+static void macoblox_fix_uint_cb_stride(char* source, unsigned long length) {
+    static const char uint_stride[] = "u) * 1 + 0]";
+    static const char uint_stride_fixed[] = "u) * 1u+0u]";
+    const unsigned long stride_len = sizeof(uint_stride) - 1;
+    for (unsigned long pos = 0; pos + stride_len <= length; pos++) {
+        unsigned long idx = 0;
+        while (idx < stride_len && source[pos + idx] == uint_stride[idx])
+            idx++;
+        if (idx == stride_len) {
+            for (idx = 0; idx < stride_len; idx++)
+                source[pos + idx] = uint_stride_fixed[idx];
+            pos += stride_len - 1;
+        }
+    }
+}
+
+static char* macoblox_wrap_position_w_index(char* source,
+                                            unsigned long* source_length) {
     static const char needle[] = "((uint(POSITION.w) >> 8u) & 255u)";
     static const char prefix[] = "int(";
     const unsigned long needle_length = sizeof(needle) - 1;
@@ -170,6 +189,13 @@ static char* macoblox_fix_mesa_shader_indices(char* source,
     free(source);
     *source_length = output;
     return fixed;
+}
+
+static char* macoblox_fix_mesa_shader_indices(char* source,
+                                              unsigned long* source_length) {
+    source = macoblox_wrap_position_w_index(source, source_length);
+    macoblox_fix_uint_cb_stride(source, *source_length);
+    return source;
 }
 
 static void macoblox_apply_ui_color_test(char* source,
@@ -1137,7 +1163,6 @@ struct macoblox_addrinfo_head {
 };
 extern int getaddrinfo(const char*, const char*, const void*, void**);
 extern int usleep(unsigned int);
-static volatile int macoblox_dns_lock;
 extern int macoblox_dns_resolve(const char* node, const char* service,
                                 const void* hints, void** result);
 static int macoblox_getaddrinfo(const char* node, const char* service,
@@ -1146,24 +1171,24 @@ static int macoblox_getaddrinfo(const char* node, const char* service,
     int own = macoblox_dns_resolve(node, service, hints, result);
     if (own >= 0)
         return own;
-    int (*real_getaddrinfo)(const char*, const char*, const void*, void**) =
-        (int (*)(const char*, const char*, const void*, void**))dlsym(RTLD_NEXT, "getaddrinfo");
-    while (__sync_lock_test_and_set(&macoblox_dns_lock, 1))
-        usleep(1000);
+
+    static int (*real_getaddrinfo)(const char*, const char*, const void*, void**) = 0;
+    if (!real_getaddrinfo) {
+        real_getaddrinfo =
+            (int (*)(const char*, const char*, const void*, void**))dlsym(RTLD_NEXT, "getaddrinfo");
+    }
 
     int status = -1;
-    int attempts = 0;
     if (real_getaddrinfo) {
-        for (attempts = 1; attempts <= 4; attempts++) {
-            if (result)
-                *result = 0;
+        if (result)
+            *result = 0;
+        status = real_getaddrinfo(node, service, hints, result);
+        if (status != 0) {
+            // Quick single retry after 10ms for transient EAI_AGAIN errors
+            usleep(10000);
             status = real_getaddrinfo(node, service, hints, result);
-            if (status == 0)
-                break;
-            usleep(50000);
         }
     }
-    __sync_lock_release(&macoblox_dns_lock);
 
     const char* trace = getenv("MACOBLOX_TRACE_DNS");
     if (status != 0 || (trace && *trace == '1')) {
@@ -1181,7 +1206,6 @@ static int macoblox_getaddrinfo(const char* node, const char* service,
         } else {
             write_str(" hints=(null)");
         }
-        write_str(" attempts="); print_num(attempts);
         write_str(" result="); print_num(status);
         write_str("\n");
     }
@@ -1251,59 +1275,145 @@ void my_abort(void) {
 }
 // Disabled: tracing/suppressing abort changes crash and post-fork semantics.
 
-// Interpose pthread_kill, kill, raise
+// Interpose pthread_kill, kill, raise, terminate_with_payload, abort_with_payload
+extern int getpid(void);
 extern int pthread_kill(void* thread, int sig);
+extern int __pthread_kill(void* thread, int sig) __asm__("___pthread_kill");
+
 int my_pthread_kill(void* thread, int sig) {
-    write_str("\n[MacOBlox Hook] ========================================\n");
-    write_str("[MacOBlox Hook] pthread_kill called with sig: ");
-    print_num(sig);
-    write_str(" for thread: ");
+    write_str("\n[MacOBlox Hook] pthread_kill(thread=");
     print_hex((unsigned long long)thread);
-    write_str("\nBacktrace of caller:\n");
+    write_str(", sig=");
+    print_num(sig);
+    write_str(") called!\n[MacOBlox Hook] Backtrace:\n");
     print_backtrace();
-    write_str("[MacOBlox Hook] ========================================\n\n");
-    if (sig == 11 || sig == 10 || sig == 6) {
-        write_str("[MacOBlox Hook] Suppressing fatal signal in pthread_kill!\n");
+    if (sig == 11 || sig == 10 || sig == 6 || sig == 4 || sig == 8) {
+        write_str("[MacOBlox Hook] Suppressing fatal signal: ");
+        print_num(sig);
+        write_str("\n");
         return 0;
     }
     int (*real_pk)(void*, int) = (int (*)(void*, int))dlsym(RTLD_NEXT, "pthread_kill");
     return real_pk ? real_pk(thread, sig) : 0;
 }
-// Disabled: tracing/suppressing pthread_kill changes crash and post-fork semantics.
+DYLD_INTERPOSE(my_pthread_kill, pthread_kill);
+
+int my_sys_pthread_kill(void* thread, int sig) {
+    write_str("\n[MacOBlox Hook] ___pthread_kill(thread=");
+    print_hex((unsigned long long)thread);
+    write_str(", sig=");
+    print_num(sig);
+    write_str(") called!\n[MacOBlox Hook] Backtrace:\n");
+    print_backtrace();
+    if (sig == 11 || sig == 10 || sig == 6 || sig == 4 || sig == 8) {
+        write_str("[MacOBlox Hook] Suppressing fatal signal: ");
+        print_num(sig);
+        write_str("\n");
+        return 0;
+    }
+    int (*real_spk)(void*, int) = (int (*)(void*, int))dlsym(RTLD_NEXT, "__pthread_kill");
+    if (!real_spk) real_spk = (int (*)(void*, int))dlsym(RTLD_DEFAULT, "___pthread_kill");
+    return real_spk ? real_spk(thread, sig) : 0;
+}
+DYLD_INTERPOSE(my_sys_pthread_kill, __pthread_kill);
 
 extern int kill(int pid, int sig);
+extern int __kill(int pid, int sig, int posix) __asm__("___kill");
+
 int my_kill(int pid, int sig) {
-    write_str("\n[MacOBlox Hook] ========================================\n");
-    write_str("[MacOBlox Hook] kill() called with sig: ");
-    print_num(sig);
-    write_str(" for pid: ");
+    write_str("\n[MacOBlox Hook] kill(pid=");
     print_num(pid);
-    write_str("\nBacktrace of caller:\n");
+    write_str(", sig=");
+    print_num(sig);
+    write_str(") called!\n[MacOBlox Hook] Backtrace:\n");
     print_backtrace();
-    write_str("[MacOBlox Hook] ========================================\n\n");
-    if (sig == 11 || sig == 10 || sig == 6) {
-        write_str("[MacOBlox Hook] Suppressing fatal signal in kill()!\n");
+    if (sig == 11 || sig == 10 || sig == 6 || sig == 4 || sig == 8) {
+        write_str("[MacOBlox Hook] Suppressing fatal signal: ");
+        print_num(sig);
+        write_str("\n");
         return 0;
     }
     int (*real_k)(int, int) = (int (*)(int, int))dlsym(RTLD_NEXT, "kill");
     return real_k ? real_k(pid, sig) : 0;
 }
-// Disabled: tracing/suppressing kill changes crash and post-fork semantics.
+DYLD_INTERPOSE(my_kill, kill);
+
+int my_sys_kill(int pid, int sig, int posix) {
+    write_str("\n[MacOBlox Hook] ___kill(pid=");
+    print_num(pid);
+    write_str(", sig=");
+    print_num(sig);
+    write_str(", posix=");
+    print_num(posix);
+    write_str(") called!\n[MacOBlox Hook] Backtrace:\n");
+    print_backtrace();
+    if (sig == 11 || sig == 10 || sig == 6 || sig == 4 || sig == 8) {
+        write_str("[MacOBlox Hook] Suppressing fatal signal: ");
+        print_num(sig);
+        write_str("\n");
+        return 0;
+    }
+    int (*real_sys_kill)(int, int, int) = (int (*)(int, int, int))dlsym(RTLD_NEXT, "__kill");
+    if (!real_sys_kill) real_sys_kill = (int (*)(int, int, int))dlsym(RTLD_DEFAULT, "___kill");
+    return real_sys_kill ? real_sys_kill(pid, sig, posix) : 0;
+}
+DYLD_INTERPOSE(my_sys_kill, __kill);
 
 extern int raise(int sig);
 int my_raise(int sig) {
-    write_str("\n[MacOBlox Hook] raise() called with sig: ");
+    write_str("\n[MacOBlox Hook] raise(sig=");
     print_num(sig);
-    write_str("\nBacktrace of caller:\n");
+    write_str(") called!\n[MacOBlox Hook] Backtrace:\n");
     print_backtrace();
-    if (sig == 11 || sig == 10 || sig == 6) {
-        write_str("[MacOBlox Hook] Suppressing fatal signal in raise()!\n");
+    if (sig == 11 || sig == 10 || sig == 6 || sig == 4 || sig == 8) {
+        write_str("[MacOBlox Hook] Suppressing fatal signal: ");
+        print_num(sig);
+        write_str("\n");
         return 0;
     }
     int (*real_raise)(int) = (int (*)(int))dlsym(RTLD_NEXT, "raise");
     return real_raise ? real_raise(sig) : 0;
 }
-// Disabled: tracing/suppressing raise changes crash and post-fork semantics.
+DYLD_INTERPOSE(my_raise, raise);
+
+extern void terminate_with_payload(int pid, unsigned int reason_namespace, unsigned long long reason_code, void *payload, unsigned long payload_size, const char *reason_string, unsigned long long reason_flags) __asm__("_terminate_with_payload");
+extern void __terminate_with_payload(int pid, unsigned int reason_namespace, unsigned long long reason_code, void *payload, unsigned long payload_size, const char *reason_string, unsigned long long reason_flags) __asm__("___terminate_with_payload");
+extern void abort_with_payload(unsigned int reason_namespace, unsigned long long reason_code, void *payload, unsigned long payload_size, const char *reason_string, unsigned long long reason_flags) __asm__("_abort_with_payload");
+extern void __abort_with_payload(unsigned int reason_namespace, unsigned long long reason_code, void *payload, unsigned long payload_size, const char *reason_string, unsigned long long reason_flags) __asm__("___abort_with_payload");
+
+void my_terminate_with_payload(int pid, unsigned int reason_namespace, unsigned long long reason_code, void *payload, unsigned long payload_size, const char *reason_string, unsigned long long reason_flags) {
+    (void)payload;
+    (void)payload_size;
+    (void)reason_flags;
+    write_str("\n[MacOBlox Hook] terminate_with_payload called! pid=");
+    print_num(pid);
+    write_str(", namespace=");
+    print_num(reason_namespace);
+    write_str(", code=");
+    print_hex(reason_code);
+    write_str(", string=");
+    if (reason_string) write_str(reason_string); else write_str("(null)");
+    write_str("\n[MacOBlox Hook] Backtrace:\n");
+    print_backtrace();
+}
+DYLD_INTERPOSE(my_terminate_with_payload, terminate_with_payload);
+DYLD_INTERPOSE(my_terminate_with_payload, __terminate_with_payload);
+
+void my_abort_with_payload(unsigned int reason_namespace, unsigned long long reason_code, void *payload, unsigned long payload_size, const char *reason_string, unsigned long long reason_flags) {
+    (void)payload;
+    (void)payload_size;
+    (void)reason_flags;
+    write_str("\n[MacOBlox Hook] abort_with_payload called! namespace=");
+    print_num(reason_namespace);
+    write_str(", code=");
+    print_hex(reason_code);
+    write_str(", string=");
+    if (reason_string) write_str(reason_string); else write_str("(null)");
+    write_str("\n[MacOBlox Hook] Backtrace:\n");
+    print_backtrace();
+}
+DYLD_INTERPOSE(my_abort_with_payload, abort_with_payload);
+DYLD_INTERPOSE(my_abort_with_payload, __abort_with_payload);
 
 static int trace_exceptions_enabled(void) {
     const char* value = getenv("MACOBLOX_TRACE_EXCEPTIONS");
@@ -1844,18 +1954,34 @@ static id hooked_win_init(id self, SEL _cmd, MacOBloxRect r, unsigned long sm, u
     write_str(object_getClassName(self));
     write_str("\n");
     id res = orig_win_init(self, _cmd, r, sm, bs, def);
+    macoblox_install_late_hooks();
     write_str("[MacOBlox Hook] -[NSWindow initWithContentRect:...] END -> ");
     print_hex((unsigned long long)res);
     write_str("\n");
     return res;
 }
 
-// Experimental 1x backing-size fallback for Darling's non-Retina NSView.
-// Only add it when AppKit does not implement the method.
+// Experimental 1x backing-size and Retina coordinate fallbacks for Darling's non-Retina AppKit.
+// Only add them when AppKit does not implement the methods.
 extern signed char class_addMethod(Class, SEL, IMP, const char*);
+static double backing_scale_factor_1x(id self, SEL cmd) {
+    (void)self; (void)cmd;
+    return 1.0;
+}
+
+static MacOBloxPoint backing_point_1x(id self, SEL cmd, MacOBloxPoint pt) {
+    (void)self; (void)cmd;
+    return pt;
+}
+
 static MacOBloxSize backing_size_1x(id self, SEL cmd, MacOBloxSize size) {
     (void)self; (void)cmd;
     return size;
+}
+
+static MacOBloxRect backing_rect_1x(id self, SEL cmd, MacOBloxRect rect) {
+    (void)self; (void)cmd;
+    return rect;
 }
 
 // NSWindow gained rectangle variants of its screen conversion API after the
@@ -1898,6 +2024,10 @@ static id web_preferences_standard_preferences(id cls, SEL cmd) {
     }
     __sync_lock_release(&macoblox_web_preferences_lock);
     return macoblox_standard_web_preferences;
+}
+
+static void web_preferences_set_bool_noop(id self, SEL cmd, signed char flag) {
+    (void)self; (void)cmd; (void)flag;
 }
 
 // Darling's AVFoundation class shell does not implement device discovery.
@@ -4429,6 +4559,12 @@ static void install_swizzles(void) {
                             (IMP)web_preferences_standard_preferences, "@@:"))
             write_str("[MacOBlox] Added WebPreferences standardPreferences\n");
     }
+    if (web_preferences_class) {
+        SEL set_plugins = sel_registerName("setPlugInsEnabled:");
+        if (!class_getInstanceMethod(web_preferences_class, set_plugins))
+            class_addMethod(web_preferences_class, set_plugins,
+                            (IMP)web_preferences_set_bool_noop, "v@:c");
+    }
 
     Class capture_device_class = objc_getClass("AVCaptureDevice");
     if (capture_device_class) {
@@ -4465,16 +4601,74 @@ static void install_swizzles(void) {
         class_addMethod(viewCls, sel_registerName("allowedTouchTypes"), (IMP)view_allowed_touch_types, "Q@:");
         write_str("[MacOBlox] Added NSView allowedTouchTypes state (no touch synthesis)\n");
     }
-    SEL backingSize = sel_registerName("convertSizeToBacking:");
-    if (viewCls && !class_getInstanceMethod(viewCls, backingSize)) {
-        class_addMethod(viewCls, backingSize, (IMP)backing_size_1x,
-                        "{CGSize=dd}@:{CGSize=dd}");
-        write_str("[MacOBlox] Added NSView convertSizeToBacking: (experimental 1x)\n");
+    if (viewCls) {
+        SEL backing_scale = sel_registerName("backingScaleFactor");
+        if (!class_getInstanceMethod(viewCls, backing_scale)) {
+            class_addMethod(viewCls, backing_scale, (IMP)backing_scale_factor_1x, "d@:");
+            write_str("[MacOBlox] Added NSView backingScaleFactor (1.0)\n");
+        }
+        SEL backing_size_to = sel_registerName("convertSizeToBacking:");
+        if (!class_getInstanceMethod(viewCls, backing_size_to)) {
+            class_addMethod(viewCls, backing_size_to, (IMP)backing_size_1x, "{CGSize=dd}@:{CGSize=dd}");
+            write_str("[MacOBlox] Added NSView convertSizeToBacking: (1x)\n");
+        }
+        SEL backing_size_from = sel_registerName("convertSizeFromBacking:");
+        if (!class_getInstanceMethod(viewCls, backing_size_from)) {
+            class_addMethod(viewCls, backing_size_from, (IMP)backing_size_1x, "{CGSize=dd}@:{CGSize=dd}");
+            write_str("[MacOBlox] Added NSView convertSizeFromBacking: (1x)\n");
+        }
+        SEL backing_point_to = sel_registerName("convertPointToBacking:");
+        if (!class_getInstanceMethod(viewCls, backing_point_to)) {
+            class_addMethod(viewCls, backing_point_to, (IMP)backing_point_1x, "{CGPoint=dd}@:{CGPoint=dd}");
+            write_str("[MacOBlox] Added NSView convertPointToBacking: (1x)\n");
+        }
+        SEL backing_point_from = sel_registerName("convertPointFromBacking:");
+        if (!class_getInstanceMethod(viewCls, backing_point_from)) {
+            class_addMethod(viewCls, backing_point_from, (IMP)backing_point_1x, "{CGPoint=dd}@:{CGPoint=dd}");
+            write_str("[MacOBlox] Added NSView convertPointFromBacking: (1x)\n");
+        }
+        SEL backing_rect_to = sel_registerName("convertRectToBacking:");
+        if (!class_getInstanceMethod(viewCls, backing_rect_to)) {
+            class_addMethod(viewCls, backing_rect_to, (IMP)backing_rect_1x,
+                            "{CGRect={CGPoint=dd}{CGSize=dd}}@:{CGRect={CGPoint=dd}{CGSize=dd}}");
+            write_str("[MacOBlox] Added NSView convertRectToBacking: (1x)\n");
+        }
+        SEL backing_rect_from = sel_registerName("convertRectFromBacking:");
+        if (!class_getInstanceMethod(viewCls, backing_rect_from)) {
+            class_addMethod(viewCls, backing_rect_from, (IMP)backing_rect_1x,
+                            "{CGRect={CGPoint=dd}{CGSize=dd}}@:{CGRect={CGPoint=dd}{CGSize=dd}}");
+            write_str("[MacOBlox] Added NSView convertRectFromBacking: (1x)\n");
+        }
     }
 
+    Class screen_class = objc_getClass("NSScreen");
+    if (screen_class) {
+        SEL backing_scale = sel_registerName("backingScaleFactor");
+        if (!class_getInstanceMethod(screen_class, backing_scale)) {
+            class_addMethod(screen_class, backing_scale, (IMP)backing_scale_factor_1x, "d@:");
+            write_str("[MacOBlox] Added NSScreen backingScaleFactor (1.0)\n");
+        }
+    }
 
     Class window_class = objc_getClass("NSWindow");
     if (window_class) {
+        SEL backing_scale = sel_registerName("backingScaleFactor");
+        if (!class_getInstanceMethod(window_class, backing_scale)) {
+            class_addMethod(window_class, backing_scale, (IMP)backing_scale_factor_1x, "d@:");
+            write_str("[MacOBlox] Added NSWindow backingScaleFactor (1.0)\n");
+        }
+        SEL backing_rect_to = sel_registerName("convertRectToBacking:");
+        if (!class_getInstanceMethod(window_class, backing_rect_to)) {
+            class_addMethod(window_class, backing_rect_to, (IMP)backing_rect_1x,
+                            "{CGRect={CGPoint=dd}{CGSize=dd}}@:{CGRect={CGPoint=dd}{CGSize=dd}}");
+            write_str("[MacOBlox] Added NSWindow convertRectToBacking: (1x)\n");
+        }
+        SEL backing_rect_from = sel_registerName("convertRectFromBacking:");
+        if (!class_getInstanceMethod(window_class, backing_rect_from)) {
+            class_addMethod(window_class, backing_rect_from, (IMP)backing_rect_1x,
+                            "{CGRect={CGPoint=dd}{CGSize=dd}}@:{CGRect={CGPoint=dd}{CGSize=dd}}");
+            write_str("[MacOBlox] Added NSWindow convertRectFromBacking: (1x)\n");
+        }
         SEL rect_from_screen = sel_registerName("convertRectFromScreen:");
         SEL rect_to_screen = sel_registerName("convertRectToScreen:");
         const char* rect_conversion_types =

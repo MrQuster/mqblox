@@ -45,7 +45,7 @@ struct AppSettings {
     // MacOBlox Runtime & Input (passed via MACOBLOX_* environment variables)
     int mouseSensitivityPct = 100; // 10..200 -> MACOBLOX_MOUSE_SENSITIVITY
     bool hideMenuBar = true;       // MACOBLOX_HIDE_MENU_BAR=0 when false
-    int dnsProvider = 1;           // 0=System, 1=Quad9, 2=Cloudflare, 3=Google, 4=Custom DoT
+    int dnsProvider = 0;           // 0=System, 1=Quad9, 2=Cloudflare, 3=Google, 4=Custom DoT
     QString dnsCustom;             // Custom DoT IPv4 when dnsProvider == 4
     bool fpsLog = false;           // MACOBLOX_FPS_LOG=1
     bool traceUdp = false;         // MACOBLOX_TRACE_UDP=1

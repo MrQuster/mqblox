@@ -57,7 +57,8 @@ public:
     QString detectedGpuVendor() const { return m_gpuVendor; }
     qint64 detectedVramBytes() const { return m_vramBytes; }
 
-    bool isGameRunning() const { return m_gameProc->state() != QProcess::NotRunning; }
+    bool isGameRunning() const { return m_gameProc->state() != QProcess::NotRunning || isRobloxProcessAlive(); }
+    static bool isRobloxProcessAlive();
 
     QStringList buildFlatpakArgs(const QString &targetUri = {}) const;
     QString buildDarlingLaunchScript(const QString &targetUri = {}) const;
