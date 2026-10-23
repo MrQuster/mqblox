@@ -213,13 +213,33 @@ fi
 check_dependencies
 
 printf '[1/4] Configuring & building MqBlox C++20/Qt6 launcher...\n'
-if [[ -f "$WORK_SRC/build/CMakeCache.txt" ]] && ! grep -qF "$WORK_SRC" "$WORK_SRC/build/CMakeCache.txt"; then
-  rm -rf "$WORK_SRC/build"
+GEN_ARGS=()
+if command -v ninja >/dev/null 2>&1; then
+  GEN_ARGS=(-GNinja)
 fi
+
+if [[ -f "$WORK_SRC/build/CMakeCache.txt" ]]; then
+  if ! grep -qF "$WORK_SRC" "$WORK_SRC/build/CMakeCache.txt" || \
+     (command -v ninja >/dev/null 2>&1 && ! grep -qF "CMAKE_GENERATOR:INTERNAL=Ninja" "$WORK_SRC/build/CMakeCache.txt") || \
+     (! command -v ninja >/dev/null 2>&1 && grep -qF "CMAKE_GENERATOR:INTERNAL=Ninja" "$WORK_SRC/build/CMakeCache.txt"); then
+    rm -rf "$WORK_SRC/build"
+  fi
+fi
+
 cmake -S "$WORK_SRC" -B "$WORK_SRC/build" \
+  "${GEN_ARGS[@]}" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$PREFIX"
-cmake --build "$WORK_SRC/build" -j"$(nproc)"
+
+if ! cmake --build "$WORK_SRC/build" -j"$(nproc)"; then
+  printf '[!] Incremental build failed, retrying with a clean build...\n'
+  rm -rf "$WORK_SRC/build"
+  cmake -S "$WORK_SRC" -B "$WORK_SRC/build" \
+    "${GEN_ARGS[@]}" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="$PREFIX"
+  cmake --build "$WORK_SRC/build" -j"$(nproc)"
+fi
 
 printf '[2/4] Running unit test suite (ctest)...\n'
 QT_QPA_PLATFORM=offscreen ctest --test-dir "$WORK_SRC/build" --output-on-failure

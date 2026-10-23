@@ -28,6 +28,18 @@ find_package(Qt6 REQUIRED COMPONENTS
 find_package(OpenGL REQUIRED)
 find_package(Threads REQUIRED)
 
+file(MAKE_DIRECTORY
+    ${CMAKE_BINARY_DIR}/CMakeFiles/mqblox_core.dir/mqblox_core_autogen
+    ${CMAKE_BINARY_DIR}/CMakeFiles/mqblox_core.dir/src/core
+    ${CMAKE_BINARY_DIR}/CMakeFiles/mqblox.dir/mqblox_autogen
+    ${CMAKE_BINARY_DIR}/CMakeFiles/mqblox.dir/mqblox_autogen/3YJK5W5UP7
+    ${CMAKE_BINARY_DIR}/CMakeFiles/mqblox.dir/src/core
+    ${CMAKE_BINARY_DIR}/CMakeFiles/mqblox.dir/src/ui
+    ${CMAKE_BINARY_DIR}/CMakeFiles/mqblox.dir/src/render
+    ${CMAKE_BINARY_DIR}/CMakeFiles/tst_mqblox.dir/tst_mqblox_autogen
+    ${CMAKE_BINARY_DIR}/CMakeFiles/tst_mqblox.dir/tests
+)
+
 add_library(mqblox_core STATIC
     src/core/Types.hpp
     src/core/SettingsRegistry.hpp
@@ -66,16 +78,6 @@ target_link_libraries(mqblox PRIVATE
     OpenGL::GL
 )
 
-include(CheckIPOSupported)
-check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
-if(ipo_supported)
-    message(STATUS "Interprocedural Optimization (IPO/LTO) enabled for Release builds")
-    set_property(TARGET mqblox mqblox_core PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-    set_property(TARGET mqblox mqblox_core PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
-    set_property(TARGET mqblox mqblox_core PROPERTY INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL TRUE)
-else()
-    message(STATUS "Interprocedural Optimization (IPO/LTO) not supported: ${ipo_error}")
-endif()
 
 foreach(tgt mqblox_core mqblox)
     target_compile_options(${tgt} PRIVATE -Wall -Wextra -Wpedantic -pipe)
