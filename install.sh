@@ -137,7 +137,11 @@ if [[ "$MODE" == "uninstall" ]]; then
   exit 0
 fi
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+else
+  SCRIPT_DIR=""
+fi
 WORK_SRC="$SCRIPT_DIR"
 TMP_DL=""
 cleanup() {
@@ -147,19 +151,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ -n "$RELEASE_TAG" ]] || [[ ! -f "$SCRIPT_DIR/CMakeLists.txt" ]]; then
+if [[ -n "$RELEASE_TAG" ]] || [[ -z "$SCRIPT_DIR" ]] || [[ ! -f "$SCRIPT_DIR/CMakeLists.txt" ]]; then
   check_dependencies
   TMP_DL=$(mktemp -d)
-  tag="${RELEASE_TAG:-latest}"
-  if [[ "$tag" == "latest" ]]; then
-    tar_url="$REPO_URL/releases/latest/download/mqblox-source.tar.gz"
+  if [[ -n "$RELEASE_TAG" ]]; then
+    tar_url="$REPO_URL/archive/refs/tags/$RELEASE_TAG.tar.gz"
   else
-    tar_url="$REPO_URL/releases/download/$tag/mqblox-$tag.tar.gz"
+    tar_url="$REPO_URL/archive/refs/heads/main.tar.gz"
   fi
-  printf '[*] Downloading release source archive (%s)...\n' "$tar_url"
+  printf '[*] Downloading MqBlox source archive (%s)...\n' "$tar_url"
   if ! curl -fsSL "$tar_url" -o "$TMP_DL/src.tar.gz"; then
-    fallback_ref="${RELEASE_TAG:-main}"
-    tar_url="$REPO_URL/archive/refs/tags/$fallback_ref.tar.gz"
+    tar_url="$REPO_URL/archive/refs/tags/v36.0.0.tar.gz"
     printf '[*] Falling back to tag archive (%s)...\n' "$tar_url"
     curl -fsSL "$tar_url" -o "$TMP_DL/src.tar.gz"
   fi
