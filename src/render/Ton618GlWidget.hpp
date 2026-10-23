@@ -35,8 +35,8 @@ struct VisualParams {
 
     int backdropType = 0;
     int backdropDimPct = 0;
-    int videoFpsLimit = 30;
-    bool pauseOnFocusLoss = false;
+    int videoFpsLimit = 24;
+    bool pauseOnFocusLoss = true;
 
     bool animationsEnabled = true;
     int animSpeedPct = 100;
@@ -131,9 +131,9 @@ private:
     std::atomic<int> m_chameleonSpeed{20};
     std::atomic<int> m_chameleonStrength{100};
     std::atomic<bool> m_reducedMotion{false};
-    std::atomic<int> m_videoFps{30};
+    std::atomic<int> m_videoFps{24};
     std::atomic<int> m_accentPreset{0};
-    std::atomic<bool> m_pauseOnFocusLoss{false};
+    std::atomic<bool> m_pauseOnFocusLoss{true};
 
     std::mutex m_pathMutex;
     std::mutex m_pauseMutex;

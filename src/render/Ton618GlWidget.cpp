@@ -233,18 +233,16 @@ Ton618GlWidget::Ton618GlWidget(QWidget *parent) : QWidget(parent) {
     loadBestFallbackImage();
     updateStaticCaches();
 
-    QString videoDir = QDir::homePath() + "/.local/share/mqblox/videos";
-    for (const QString &cand : {
-             videoDir + "/smooth_loop.mp4",
-             videoDir + "/active_video.mp4",
-             videoDir + "/ton618_nasa_loop.mp4"}) {
-        if (QFileInfo(cand).size() > 100000) {
-            m_videoPath = cand;
-            m_defaultVideoPath = cand;
-            break;
-        }
+    if (auto *guiApp = qobject_cast<QGuiApplication *>(QGuiApplication::instance())) {
+        connect(guiApp, &QGuiApplication::applicationStateChanged, this, [this](Qt::ApplicationState state) {
+            m_windowFocused = (state == Qt::ApplicationActive);
+            updatePauseState();
+        });
+        connect(guiApp, &QGuiApplication::focusWindowChanged, this, [this](QWindow *focusWin) {
+            m_windowFocused = (focusWin != nullptr);
+            updatePauseState();
+        });
     }
-    startDecoderThread();
 }
 
 Ton618GlWidget::~Ton618GlWidget() {
@@ -415,8 +413,8 @@ void Ton618GlWidget::decoderLoop() {
     }
     if (path.isEmpty() || !QFile::exists(path)) return;
 
-    QString cmd = QString("ffmpeg -loglevel quiet -hwaccel auto -threads 2 -stream_loop -1 -i \"%1\" "
-                          "-vf scale=%2:%3:flags=fast_bilinear -r 30 -f rawvideo -pix_fmt rgb32 -")
+    QString cmd = QString("ffmpeg -loglevel quiet -re -threads 1 -stream_loop -1 -i \"%1\" "
+                          "-vf scale=%2:%3:flags=fast_bilinear -r 24 -f rawvideo -pix_fmt rgb32 -")
                       .arg(path)
                       .arg(STREAM_W)
                       .arg(STREAM_H);
@@ -463,9 +461,9 @@ void Ton618GlWidget::decoderLoop() {
             int offY = std::max(0, (sharpScaled.height() - th) / 2);
             QImage sharpFinal = sharpScaled.copy(offX, offY, tw, th);
 
-            QImage small = sharpFinal.scaled(240, 135, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            QImage small = rawFrame.scaled(160, 90, Qt::IgnoreAspectRatio, Qt::FastTransformation);
             QImage blurredSmall = buildCrystalFrostedImage(small, blurR, satPct);
-            QImage frostedFinal = blurredSmall.scaled(tw, th, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            QImage frostedFinal = blurredSmall.scaled(tw, th, Qt::IgnoreAspectRatio, Qt::FastTransformation);
 
             if ((frameCounter++ % 4 == 0) || prevColorMap.isNull()) {
                 int cSpeed = std::clamp(m_chameleonSpeed.load(std::memory_order_relaxed), 5, 100);

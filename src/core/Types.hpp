@@ -101,8 +101,8 @@ struct AppSettings {
     int backdropType = 0;
     QString customBackdropPath;
     int backdropDimPct = 0;
-    int videoFpsLimit = 30;
-    bool pauseOnFocusLoss = false;
+    int videoFpsLimit = 24;
+    bool pauseOnFocusLoss = true;
 
     // 4. Анимации
     bool animationsEnabled = true;
