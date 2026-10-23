@@ -596,9 +596,10 @@ static int traced_kevent(int queue, const void *changes, int change_count, void 
 }
     DYLD_INTERPOSE(traced_kevent, kevent)
 
+extern void *dlsym(void *, const char *);
 extern int close(int);
 static int macoblox_close(int fd) {
-    if (fd >= 0 && fd < 1024) {
+    if (trace_enabled() && fd >= 0 && fd < 1024) {
         reader_thread[fd] = 0;
         last_read_time[fd] = 0;
         stall_dumped[fd] = 0;
@@ -612,6 +613,7 @@ static int macoblox_close(int fd) {
         }
         unlock_watched();
     }
-    return close(fd);
+    int (*real_close)(int) = (int (*)(int))dlsym((void *)-1, "close");
+    return real_close ? real_close(fd) : close(fd);
 }
 DYLD_INTERPOSE(macoblox_close, close)

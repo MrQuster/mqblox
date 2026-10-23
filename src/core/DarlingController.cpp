@@ -131,6 +131,7 @@ DarlingController::DarlingController(SettingsManager *settingsMgr, QObject *pare
         }
 
         auto finishSession = [this, exitCode, status]() {
+            clearStaleDarlingProcesses();
             stopDnsForwarder();
             m_inActivePlace = false;
             bool crashed = (!m_manualStop && (status == QProcess::CrashExit || exitCode != 0));
@@ -601,15 +602,27 @@ bool DarlingController::isRobloxProcessAlive() {
         if (commFile.open(QIODevice::ReadOnly)) {
             comm = QString::fromUtf8(commFile.readAll()).trimmed();
         }
+        if (comm == "bwrap" || comm == "flatpak" || comm == "sh" ||
+            comm == "bash" || comm == "darling" || comm == "darlingserver" ||
+            comm == "RobloxCrashHandler") {
+            continue;
+        }
+
         if (comm == "RobloxPlayer") {
             return true;
         }
 
-        QFile cmdFile(procPath + "/cmdline");
-        if (cmdFile.open(QIODevice::ReadOnly)) {
-            const QByteArray cmdline = cmdFile.readAll();
-            if (cmdline.contains("RobloxPlayer") && !cmdline.contains("RobloxCrashHandler")) {
-                return true;
+        if (comm == "Main" || comm == "mldr") {
+            QFile cmdFile(procPath + "/cmdline");
+            if (cmdFile.open(QIODevice::ReadOnly)) {
+                const QByteArray cmdline = cmdFile.readAll();
+                const QList<QByteArray> args = cmdline.split('\0');
+                if (!args.isEmpty()) {
+                    const QByteArray argv0 = args.first();
+                    if (argv0.endsWith("RobloxPlayer") && !argv0.contains("RobloxCrashHandler")) {
+                        return true;
+                    }
+                }
             }
         }
     }
