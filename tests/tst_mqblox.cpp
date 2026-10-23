@@ -1,6 +1,6 @@
 #include "core/SettingsManager.hpp"
 #include "core/SettingsRegistry.hpp"
-#include "core/SoberController.hpp"
+#include "core/DarlingController.hpp"
 #include <QDirIterator>
 #include <QFile>
 #include <QJsonDocument>
@@ -37,15 +37,6 @@ private slots:
             f.close();
         }
 
-        const QString cfgPath = mgr.soberBaseDir() + "/config/sober/config.json";
-        QDir().mkpath(QFileInfo(cfgPath).absolutePath());
-        {
-            QFile f(cfgPath);
-            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
-            f.write(R"({"custom_sober_internal_key": 42, "fflags": {"FFlagForeignUserKey": true}})");
-            f.close();
-        }
-
         mgr.settings().customFflagsJson = "{ broken json ";
         QString err;
         QVERIFY(!mgr.saveAll(&err));
@@ -57,7 +48,7 @@ private slots:
         mgr.settings().clearFog = true;
         QVERIFY(mgr.saveAll(&err));
 
-        // 1. Verify MacOBlox ClientAppSettings.json
+        // Verify MacOBlox ClientAppSettings.json
         QFile csf(clientSettingsPath);
         QVERIFY(csf.open(QIODevice::ReadOnly));
         QJsonObject csRoot = QJsonDocument::fromJson(csf.readAll()).object();
@@ -67,15 +58,6 @@ private slots:
         QCOMPARE(csRoot.value("FIntFRMMinGrassDistance").toInt(), 0);
         QCOMPARE(csRoot.value("FFlagDebugGraphicsPreferOpenGL").toBool(), true);
         QVERIFY(!csRoot.contains("FFlagDebugGraphicsPreferVulkan"));
-
-        // 2. Verify legacy config.json compatibility
-        QFile cf(cfgPath);
-        QVERIFY(cf.open(QIODevice::ReadOnly));
-        QJsonObject root = QJsonDocument::fromJson(cf.readAll()).object();
-        QCOMPARE(root.value("custom_sober_internal_key").toInt(), 42);
-        QCOMPARE(root.value("use_console_experience").toBool(), false);
-        QCOMPARE(root.value("touch_mode").toString(), QString("off"));
-        QVERIFY(!root.contains("bring_back_oof"));
     }
 
     void testRegistryClampingMutualExclusionAndReset() {
@@ -193,7 +175,7 @@ private slots:
 
     void testZeroAudioInterferenceAndSourceAudit() {
         SettingsManager mgr;
-        SoberController ctrl(&mgr);
+        DarlingController ctrl(&mgr);
         const QStringList args = ctrl.buildFlatpakArgs("roblox://experiences/start?placeId=1818");
         const QString joinedArgs = args.join(' ');
 

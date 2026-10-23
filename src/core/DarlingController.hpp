@@ -26,11 +26,11 @@ struct EnvironmentStatus {
     QString sessionType;
 };
 
-class SoberController : public QObject {
+class DarlingController : public QObject {
     Q_OBJECT
 public:
-    explicit SoberController(SettingsManager *settingsMgr, QObject *parent = nullptr);
-    ~SoberController() override;
+    explicit DarlingController(SettingsManager *settingsMgr, QObject *parent = nullptr);
+    ~DarlingController() override;
 
     void detectHardwareAsync();
 
@@ -103,7 +103,5 @@ private:
     qint64 m_joinTimestampMs = 0;
     QStringList m_recentErrors;
 };
-
-using DarlingController = SoberController;
 
 } // namespace mqblox

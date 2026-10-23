@@ -1,4 +1,4 @@
-#include "core/SoberController.hpp"
+#include "core/DarlingController.hpp"
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -99,7 +99,7 @@ QString findDarlingBin() {
 
 } // namespace
 
-SoberController::SoberController(SettingsManager *settingsMgr, QObject *parent)
+DarlingController::DarlingController(SettingsManager *settingsMgr, QObject *parent)
     : QObject(parent),
       m_settingsMgr(settingsMgr),
       m_gameProc(new QProcess(this)),
@@ -125,7 +125,7 @@ SoberController::SoberController(SettingsManager *settingsMgr, QObject *parent)
     });
 }
 
-SoberController::~SoberController() {
+DarlingController::~DarlingController() {
     stopDnsForwarder();
     if (m_gameProc && m_gameProc->state() != QProcess::NotRunning) {
         m_gameProc->terminate();
@@ -133,7 +133,7 @@ SoberController::~SoberController() {
     }
 }
 
-void SoberController::detectHardwareAsync() {
+void DarlingController::detectHardwareAsync() {
     m_vramBytes = readSysfsVramBytes();
     QFile f("/proc/cpuinfo");
     if (f.open(QIODevice::ReadOnly)) {
@@ -163,7 +163,7 @@ void SoberController::detectHardwareAsync() {
     proc->start("lspci", {});
 }
 
-QString SoberController::shimSourceDir() const {
+QString DarlingController::shimSourceDir() const {
     const QString appDir = QCoreApplication::applicationDirPath();
     const QStringList candidates = {
         QDir::currentPath() + "/shims",
@@ -183,7 +183,7 @@ QString SoberController::shimSourceDir() const {
     return QDir::currentPath() + "/shims";
 }
 
-QString SoberController::shimDylibPath() const {
+QString DarlingController::shimDylibPath() const {
     const QString inData = m_settingsMgr->macobloxDataDir() + "/libMacOBloxShims.dylib";
     if (QFile::exists(inData)) return inData;
     const QString inDataBuild = m_settingsMgr->macobloxDataDir() + "/build/libMacOBloxShims.dylib";
@@ -197,7 +197,7 @@ QString SoberController::shimDylibPath() const {
     return inData;
 }
 
-EnvironmentStatus SoberController::checkEnvironment() const {
+EnvironmentStatus DarlingController::checkEnvironment() const {
     EnvironmentStatus st;
     const QStringList searchPaths = {
         QDir::homePath() + "/.local/bin",
@@ -233,7 +233,7 @@ EnvironmentStatus SoberController::checkEnvironment() const {
     return st;
 }
 
-QString SoberController::collectDiagnosticsReport() const {
+QString DarlingController::collectDiagnosticsReport() const {
     const EnvironmentStatus st = checkEnvironment();
     const AppSettings &s = m_settingsMgr->settings();
     QStringList out;
@@ -273,7 +273,7 @@ QString SoberController::collectDiagnosticsReport() const {
     return out.join('\n');
 }
 
-bool SoberController::isSignedIn() const {
+bool DarlingController::isSignedIn() const {
     const QString cookiesPath =
         darlingMacOBloxUserDir(m_settingsMgr->darlingPrefixDir()) + "/Cookies.plist";
     QFile f(cookiesPath);
@@ -282,7 +282,7 @@ bool SoberController::isSignedIn() const {
     return f.readAll().contains("<string>.ROBLOSECURITY</string>");
 }
 
-void SoberController::logoutAsync() {
+void DarlingController::logoutAsync() {
     const QString hostDir = darlingMacOBloxUserDir(m_settingsMgr->darlingPrefixDir());
     const QString user = qEnvironmentVariable("USER", QDir::homePath().section('/', -1));
     (void)QtConcurrent::run([this, hostDir, user]() {
@@ -303,7 +303,7 @@ void SoberController::logoutAsync() {
     });
 }
 
-QString SoberController::buildDarlingLaunchScript(const QString &targetUri) const {
+QString DarlingController::buildDarlingLaunchScript(const QString &targetUri) const {
     const AppSettings &s = m_settingsMgr->settings();
     const qint64 vram = m_vramBytes > 0 ? m_vramBytes : readSysfsVramBytes();
 
@@ -354,11 +354,11 @@ QString SoberController::buildDarlingLaunchScript(const QString &targetUri) cons
         .arg(shellSingleQuote(appExecutableDir), envExports.join(" && "), execCmd);
 }
 
-QStringList SoberController::buildFlatpakArgs(const QString &targetUri) const {
+QStringList DarlingController::buildFlatpakArgs(const QString &targetUri) const {
     return {"shell", "/bin/bash", "-c", buildDarlingLaunchScript(targetUri)};
 }
 
-void SoberController::startDnsForwarder() {
+void DarlingController::startDnsForwarder() {
     stopDnsForwarder();
     const AppSettings &s = m_settingsMgr->settings();
     if (s.dnsProvider <= 0) return;
@@ -427,7 +427,7 @@ void SoberController::startDnsForwarder() {
     });
 }
 
-void SoberController::stopDnsForwarder() {
+void DarlingController::stopDnsForwarder() {
     m_dnsPort = 0;
     if (m_dnsUdp) {
         m_dnsUdp->close();
@@ -436,7 +436,7 @@ void SoberController::stopDnsForwarder() {
     }
 }
 
-void SoberController::clearStaleDarlingProcesses() {
+void DarlingController::clearStaleDarlingProcesses() {
     const uid_t myUid = ::getuid();
     const QString myPrefix = QFileInfo(m_settingsMgr->darlingPrefixDir()).absoluteFilePath();
     QDir procDir("/proc");
@@ -464,7 +464,7 @@ void SoberController::clearStaleDarlingProcesses() {
     }
 }
 
-void SoberController::launchRoblox(const QString &customUri) {
+void DarlingController::launchRoblox(const QString &customUri) {
     m_manualStop = false;
     m_inActivePlace = false;
     m_settingsMgr->saveAll();
@@ -503,7 +503,7 @@ void SoberController::launchRoblox(const QString &customUri) {
     m_gameProc->start(darlingBin, args);
 }
 
-void SoberController::stopRobloxAsync() {
+void DarlingController::stopRobloxAsync() {
     m_manualStop = true;
     m_inActivePlace = false;
     stopDnsForwarder();
@@ -532,7 +532,7 @@ void SoberController::stopRobloxAsync() {
     });
 }
 
-void SoberController::restartDarlingAsync() {
+void DarlingController::restartDarlingAsync() {
     stopDnsForwarder();
     emit logGenerated("[🔄] Перезапуск контейнера Darling...");
     const QString dprefix = m_settingsMgr->darlingPrefixDir();
@@ -554,7 +554,7 @@ void SoberController::restartDarlingAsync() {
     });
 }
 
-void SoberController::saveCurrentSessionToSlotAsync() {
+void DarlingController::saveCurrentSessionToSlotAsync() {
     const QString macobloxDir = darlingMacOBloxUserDir(m_settingsMgr->darlingPrefixDir());
     const QString slotDir =
         m_settingsMgr->accountsDir() + "/" + m_settingsMgr->activeAccountId() + "/MacOBlox";
@@ -566,7 +566,7 @@ void SoberController::saveCurrentSessionToSlotAsync() {
     });
 }
 
-void SoberController::switchAccountSlotAsync(const QString &targetAccountId) {
+void DarlingController::switchAccountSlotAsync(const QString &targetAccountId) {
     stopRobloxAsync();
     const QString macobloxDir = darlingMacOBloxUserDir(m_settingsMgr->darlingPrefixDir());
     const QString oldSlot =
@@ -598,7 +598,7 @@ void SoberController::switchAccountSlotAsync(const QString &targetAccountId) {
     }));
 }
 
-void SoberController::prepareDarlingPrefixSync() {
+void DarlingController::prepareDarlingPrefixSync() {
     const QString prefix = m_settingsMgr->darlingPrefixDir();
     if (!QDir(prefix).exists()) return;
 
@@ -648,7 +648,7 @@ void SoberController::prepareDarlingPrefixSync() {
     }
 }
 
-void SoberController::runSetupOrUpdateWizardAsync() {
+void DarlingController::runSetupOrUpdateWizardAsync() {
     if (m_wizardBusy) return;
     m_wizardBusy = true;
 
@@ -706,7 +706,7 @@ void SoberController::runSetupOrUpdateWizardAsync() {
     m_wizardProc->start("/bin/bash", {buildScript});
 }
 
-void SoberController::stepDownloadOrUpdateRoblox() {
+void DarlingController::stepDownloadOrUpdateRoblox() {
     QNetworkRequest req(QUrl("https://clientsettingscdn.roblox.com/v2/client-version/MacPlayer"));
     req.setHeader(QNetworkRequest::UserAgentHeader, "MacOBlox/1.0");
     QNetworkReply *verReply = m_nam->get(req);
@@ -840,7 +840,7 @@ void SoberController::stepDownloadOrUpdateRoblox() {
     });
 }
 
-void SoberController::handleProcessOutput(const QString &chunk) {
+void DarlingController::handleProcessOutput(const QString &chunk) {
     const QStringList &markers = m_settingsMgr->settings().leaveMarkers;
     qint64 now = QDateTime::currentMSecsSinceEpoch();
 

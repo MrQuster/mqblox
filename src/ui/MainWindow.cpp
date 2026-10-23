@@ -90,7 +90,7 @@ static QScrollArea *wrapScrollable(QWidget *w) {
 MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     : QMainWindow(parent), m_launchUri(launchUri) {
     m_settingsMgr.loadAll();
-    m_soberCtrl = new SoberController(&m_settingsMgr, this);
+    m_darlingCtrl = new DarlingController(&m_settingsMgr, this);
 
     setWindowTitle(tr("MqBlox × MacOBlox v36.0 [HyperOS 4 Liquid Glass • Darling]"));
     QString iconFile = QDir::homePath() + "/.local/share/icons/hicolor/scalable/apps/mqblox.svg";
@@ -148,56 +148,56 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     applyLayoutAndTypographyLive();
     m_isLoadingUi = false;
 
-    connect(m_soberCtrl, &SoberController::hardwareDetected, this, [this]() {
+    connect(m_darlingCtrl, &DarlingController::hardwareDetected, this, [this]() {
         if (m_hwBannerLbl) {
             m_hwBannerLbl->setText(tr("🔍 Железо: <b>%1</b> (%2 потоков) • GPU: <b>%3</b>")
-                                       .arg(m_soberCtrl->cpuModel())
-                                       .arg(m_soberCtrl->cpuThreads())
-                                       .arg(m_soberCtrl->gpuModel()));
+                                       .arg(m_darlingCtrl->cpuModel())
+                                       .arg(m_darlingCtrl->cpuThreads())
+                                       .arg(m_darlingCtrl->gpuModel()));
         }
         refreshEnvironmentAndSessionUi();
     });
-    connect(m_soberCtrl, &SoberController::logGenerated, this, [this](const QString &line) {
+    connect(m_darlingCtrl, &DarlingController::logGenerated, this, [this](const QString &line) {
         if (m_logView) m_logView->append(line);
     });
-    connect(m_soberCtrl, &SoberController::toastRequested, this, &MainWindow::enqueueToast);
-    connect(m_soberCtrl, &SoberController::gameStarted, this, [this]() {
+    connect(m_darlingCtrl, &DarlingController::toastRequested, this, &MainWindow::enqueueToast);
+    connect(m_darlingCtrl, &DarlingController::gameStarted, this, [this]() {
         if (m_rootCosmos) m_rootCosmos->setInGamePaused(true);
         m_statusBadge->setText(m_sidebarExpanded ? tr("● В ИГРЕ (DARLING)") : "🎮");
         enqueueToast(tr("🚀 RobloxPlayer.app запущен через Darling (аудио и микрофон в audio_hal.c)"));
     });
-    connect(m_soberCtrl, &SoberController::gameLeftByPlayer, this, [this]() {
-        m_soberCtrl->saveCurrentSessionToSlotAsync();
+    connect(m_darlingCtrl, &DarlingController::gameLeftByPlayer, this, [this]() {
+        m_darlingCtrl->saveCurrentSessionToSlotAsync();
         showNormal();
         raise();
         activateWindow();
         switchTab(0);
         enqueueToast(tr("🏠 Выход с сервера: возврат в MqBlox"));
     });
-    connect(m_soberCtrl, &SoberController::gameFinished, this, [this](int, bool crashed) {
+    connect(m_darlingCtrl, &DarlingController::gameFinished, this, [this](int, bool crashed) {
         if (m_rootCosmos) m_rootCosmos->setInGamePaused(false);
         m_statusBadge->setText(m_sidebarExpanded ? tr("● В МЕНЮ MQBLOX") : "●");
-        m_soberCtrl->saveCurrentSessionToSlotAsync();
+        m_darlingCtrl->saveCurrentSessionToSlotAsync();
         refreshEnvironmentAndSessionUi();
         showNormal();
         raise();
         activateWindow();
         if (crashed && m_settingsMgr.settings().autoReconnectOnCrash) {
             enqueueToast(tr("⚠️ Обнаружен сбой клиента! Авто-перезаход через 3 с..."));
-            QTimer::singleShot(3000, this, [this]() { m_soberCtrl->launchRoblox(); });
+            QTimer::singleShot(3000, this, [this]() { m_darlingCtrl->launchRoblox(); });
         }
     });
-    connect(m_soberCtrl, &SoberController::accountSwitchCompleted, this, [this](const QString &accId) {
+    connect(m_darlingCtrl, &DarlingController::accountSwitchCompleted, this, [this](const QString &accId) {
         refreshAccountsUi();
         refreshEnvironmentAndSessionUi();
         enqueueToast(tr("👤 Слот сессии переключён на «%1»").arg(accId));
     });
-    connect(m_soberCtrl, &SoberController::wizardProgress, this,
+    connect(m_darlingCtrl, &DarlingController::wizardProgress, this,
             [this](int pct, const QString &statusText) {
                 if (m_wizardProgressBar) m_wizardProgressBar->setValue(pct);
                 if (m_lblWizardStatus) m_lblWizardStatus->setText(statusText);
             });
-    connect(m_soberCtrl, &SoberController::wizardFinished, this,
+    connect(m_darlingCtrl, &DarlingController::wizardFinished, this,
             [this](bool ok, const QString &summary) {
                 if (m_btnRunWizard) m_btnRunWizard->setEnabled(true);
                 if (m_lblWizardStatus) {
@@ -206,10 +206,10 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
                 enqueueToast((ok ? "✅ " : "⚠️ ") + summary);
                 refreshEnvironmentAndSessionUi();
             });
-    connect(m_soberCtrl, &SoberController::sessionStateChanged, this,
+    connect(m_darlingCtrl, &DarlingController::sessionStateChanged, this,
             &MainWindow::refreshEnvironmentAndSessionUi);
 
-    m_soberCtrl->detectHardwareAsync();
+    m_darlingCtrl->detectHardwareAsync();
 
     auto *watchdog = new QTimer(this);
     connect(watchdog, &QTimer::timeout, this, [this]() { runWatchdogTick(); });
@@ -217,7 +217,7 @@ MainWindow::MainWindow(const QString &launchUri, QWidget *parent)
     runWatchdogTick();
 
     if (!m_launchUri.isEmpty()) {
-        QTimer::singleShot(400, this, [this]() { m_soberCtrl->launchRoblox(m_launchUri); });
+        QTimer::singleShot(400, this, [this]() { m_darlingCtrl->launchRoblox(m_launchUri); });
     }
 }
 
@@ -294,8 +294,8 @@ void MainWindow::initTrayAndShortcuts() {
             raise();
             activateWindow();
         });
-        menu->addAction(tr("▶ Запустить Roblox (Darling)"), this, [this]() { m_soberCtrl->launchRoblox(); });
-        menu->addAction(tr("🛑 Остановить Roblox"), this, [this]() { m_soberCtrl->stopRobloxAsync(); });
+        menu->addAction(tr("▶ Запустить Roblox (Darling)"), this, [this]() { m_darlingCtrl->launchRoblox(); });
+        menu->addAction(tr("🛑 Остановить Roblox"), this, [this]() { m_darlingCtrl->stopRobloxAsync(); });
         menu->addSeparator();
         menu->addAction(tr("❌ Полный выход из MqBlox"), this, [this, menu]() {
             m_forceQuit = true;
@@ -319,8 +319,8 @@ void MainWindow::initTrayAndShortcuts() {
     }
 
     new QShortcut(QKeySequence(Qt::Key_F5), this, [this]() { refreshEnvironmentAndSessionUi(); });
-    new QShortcut(QKeySequence("Ctrl+L"), this, [this]() { m_soberCtrl->launchRoblox(); });
-    new QShortcut(QKeySequence("Ctrl+K"), this, [this]() { m_soberCtrl->stopRobloxAsync(); });
+    new QShortcut(QKeySequence("Ctrl+L"), this, [this]() { m_darlingCtrl->launchRoblox(); });
+    new QShortcut(QKeySequence("Ctrl+K"), this, [this]() { m_darlingCtrl->stopRobloxAsync(); });
     new QShortcut(QKeySequence("Ctrl+Q"), this, [this]() { m_forceQuit = true; close(); });
 }
 
@@ -460,7 +460,7 @@ void MainWindow::initUi() {
     connect(m_comboQuickAcc, &QComboBox::currentIndexChanged, this, [this](int i) {
         QString id = m_comboQuickAcc->itemData(i).toString();
         if (!id.isEmpty() && id != m_settingsMgr.activeAccountId()) {
-            m_soberCtrl->switchAccountSlotAsync(id);
+            m_darlingCtrl->switchAccountSlotAsync(id);
         }
     });
     topBar->addWidget(m_comboQuickAcc);
@@ -516,15 +516,15 @@ void MainWindow::initUi() {
     connect(btnResetLook, &QPushButton::clicked, this, [this]() { resetAppearanceToDefault(); });
 
     auto *btnRejoin = new AnimButton(tr("🔄 Перезапустить Darling"));
-    connect(btnRejoin, &QPushButton::clicked, this, [this]() { m_soberCtrl->restartDarlingAsync(); });
+    connect(btnRejoin, &QPushButton::clicked, this, [this]() { m_darlingCtrl->restartDarlingAsync(); });
 
     auto *btnKill = new AnimButton(tr("🛑 Остановить игру"), nullptr, QColor(239, 68, 68), false, true);
-    connect(btnKill, &QPushButton::clicked, this, [this]() { m_soberCtrl->stopRobloxAsync(); });
+    connect(btnKill, &QPushButton::clicked, this, [this]() { m_darlingCtrl->stopRobloxAsync(); });
 
     auto *btnPlay = new AnimButton(tr("▶  ЗАПУСТИТЬ ИГРУ"), nullptr, QColor(16, 185, 129), true, false);
     connect(btnPlay, &QPushButton::clicked, this, [this]() {
         saveSettingsNow(false);
-        m_soberCtrl->launchRoblox();
+        m_darlingCtrl->launchRoblox();
     });
 
     bottomBar->addWidget(m_lblAutosync);
@@ -578,7 +578,7 @@ QWidget *MainWindow::buildHomeRobloxPage() {
             return;
         }
         saveSettingsNow(false);
-        m_soberCtrl->launchRoblox(uri);
+        m_darlingCtrl->launchRoblox(uri);
     };
     connect(m_inpPlace, &QLineEdit::returnPressed, this, launchByInput);
     connect(m_inpPlace, &QLineEdit::textChanged, this, [this]() { triggerInstantAutosave(); });
@@ -593,7 +593,7 @@ QWidget *MainWindow::buildHomeRobloxPage() {
     m_lblSessionStatus = new QLabel(tr("Проверка статуса локальной сессии в Darling..."));
     m_lblSessionStatus->setObjectName("SubText");
     m_btnLogout = new AnimButton(tr("🚪 Очистить сессию в Darling"), nullptr, QColor(239, 68, 68), false, true);
-    connect(m_btnLogout, &QPushButton::clicked, this, [this]() { m_soberCtrl->logoutAsync(); });
+    connect(m_btnLogout, &QPushButton::clicked, this, [this]() { m_darlingCtrl->logoutAsync(); });
     sessRow->addWidget(m_lblSessionStatus, 1);
     sessRow->addWidget(m_btnLogout);
     cl->addLayout(sessRow);
@@ -629,7 +629,7 @@ QWidget *MainWindow::buildHomeRobloxPage() {
     m_btnRunWizard = new AnimButton(tr("⬇️ Установить / Обновить (Шимы + Roblox)"), nullptr, QColor(16, 185, 129), true);
     connect(m_btnRunWizard, &QPushButton::clicked, this, [this]() {
         m_btnRunWizard->setEnabled(false);
-        m_soberCtrl->runSetupOrUpdateWizardAsync();
+        m_darlingCtrl->runSetupOrUpdateWizardAsync();
     });
     auto *btnCheckEnv = new AnimButton(tr("🔍 Проверить зависимости"), nullptr, QColor(56, 189, 248));
     connect(btnCheckEnv, &QPushButton::clicked, this, &MainWindow::refreshEnvironmentAndSessionUi);
@@ -657,7 +657,7 @@ QWidget *MainWindow::buildHomeRobloxPage() {
     auto *diagRow = new QHBoxLayout();
     auto *btnCopyDiag = new AnimButton(tr("📋 Копировать отчёт"), nullptr, QColor(56, 189, 248));
     connect(btnCopyDiag, &QPushButton::clicked, this, [this]() {
-        const QString report = m_soberCtrl->collectDiagnosticsReport();
+        const QString report = m_darlingCtrl->collectDiagnosticsReport();
         if (QClipboard *cb = QApplication::clipboard()) {
             cb->setText(report);
         }
@@ -767,11 +767,11 @@ QWidget *MainWindow::buildAccountsPage() {
             p.label = name.trimmed();
             p.displayName = name.trimmed();
             m_settingsMgr.accounts().push_back(p);
-            m_soberCtrl->switchAccountSlotAsync(p.id);
+            m_darlingCtrl->switchAccountSlotAsync(p.id);
         }
     });
     connect(bSave, &QPushButton::clicked, this, [this]() {
-        m_soberCtrl->saveCurrentSessionToSlotAsync();
+        m_darlingCtrl->saveCurrentSessionToSlotAsync();
         enqueueToast(tr("✓ Локальная папка сессии сохранена в активный слот"));
     });
 
@@ -1238,7 +1238,7 @@ QWidget *MainWindow::buildCameraModsPage() {
         }
     });
     connect(bCopyDiag, &QPushButton::clicked, this, [this]() {
-        const QString report = m_soberCtrl->collectDiagnosticsReport();
+        const QString report = m_darlingCtrl->collectDiagnosticsReport();
         if (QClipboard *cb = QApplication::clipboard()) {
             cb->setText(report);
         }
@@ -1392,7 +1392,7 @@ void MainWindow::refreshGitUpdateStatus() {
 }
 
 void MainWindow::refreshEnvironmentAndSessionUi() {
-    const EnvironmentStatus st = m_soberCtrl->checkEnvironment();
+    const EnvironmentStatus st = m_darlingCtrl->checkEnvironment();
     if (m_lblEnvSummary) {
         m_lblEnvSummary->setText(
             QString("<b>Компоненты:</b> Darling: %1 | clang: %2 | ld.lld: %3 | unzip: %4 | "
@@ -1405,7 +1405,7 @@ void MainWindow::refreshEnvironmentAndSessionUi() {
                      st.hasRobloxApp ? ("✅ v" + st.installedRobloxVersion) : "⚠️ Не установлен"));
     }
     if (m_lblSessionStatus) {
-        const bool signedIn = m_soberCtrl->isSignedIn();
+        const bool signedIn = m_darlingCtrl->isSignedIn();
         m_lblSessionStatus->setText(
             signedIn
                 ? tr("🟢 <b>Сессия в Darling активна</b> (Cookies.plist присутствует; токен не читается лаунчером)")
@@ -1413,7 +1413,7 @@ void MainWindow::refreshEnvironmentAndSessionUi() {
         if (m_btnLogout) m_btnLogout->setEnabled(signedIn);
     }
     if (m_homeDiagView) {
-        m_homeDiagView->setPlainText(m_soberCtrl->collectDiagnosticsReport());
+        m_homeDiagView->setPlainText(m_darlingCtrl->collectDiagnosticsReport());
     }
 }
 
@@ -1811,7 +1811,7 @@ void MainWindow::refreshAccountsUi() {
         if (!isAct) {
             auto *bSw = new AnimButton(tr("✅ Переключить слот"));
             QString id = acc.id;
-            connect(bSw, &QPushButton::clicked, this, [this, id]() { m_soberCtrl->switchAccountSlotAsync(id); });
+            connect(bSw, &QPushButton::clicked, this, [this, id]() { m_darlingCtrl->switchAccountSlotAsync(id); });
             row->addWidget(bSw);
         }
         m_accountsListLayout->addWidget(card);

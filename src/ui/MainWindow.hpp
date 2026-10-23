@@ -1,6 +1,6 @@
 #pragma once
 #include "core/SettingsManager.hpp"
-#include "core/SoberController.hpp"
+#include "core/DarlingController.hpp"
 #include "render/Ton618GlWidget.hpp"
 #include "ui/Widgets.hpp"
 #include <QCheckBox>
@@ -76,7 +76,7 @@ private:
 
     QString m_launchUri;
     SettingsManager m_settingsMgr;
-    SoberController *m_soberCtrl = nullptr;
+    DarlingController *m_darlingCtrl = nullptr;
 
     Ton618GlWidget *m_rootCosmos = nullptr;
     HoverSidebar *m_sidebar = nullptr;

@@ -83,7 +83,7 @@ QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
 
 Все настройки хранятся в едином реестре `SettingsRegistry` (`~/.config/mqblox/settings_v36.json`, `schemaVersion = 36`) с атомарной записью через `QSaveFile` и автоматической миграцией со старых схем (`settings_v35.json`, `settings_v34.json`, `settings_v13.json`).
 
-Перед запуском игры `SoberController::syncConfigFromSettings()` генерирует:
+Перед запуском игры `DarlingController` и `SettingsManager` генерируют:
 1. Переменные окружения процесса Darling (`MACOBLOX_*`, `__GL_*`, `vblank_mode`);
 2. `ClientAppSettings.json` внутри бандла `RobloxPlayer.app/Contents/MacOS/ClientSettings/ClientAppSettings.json` и в профиле слота.
 

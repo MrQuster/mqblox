@@ -30,7 +30,6 @@ public:
     QString robloxAppDir() const;
     QString clientAppSettingsPath() const;
     QString darlingPrefixDir() const;
-    QString soberBaseDir() const;
 
     bool exportPresetToFile(const QString &filePath) const;
     bool importPresetFromFile(const QString &filePath, QString *errMsg = nullptr);

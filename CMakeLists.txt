@@ -33,8 +33,8 @@ add_library(mqblox_core STATIC
     src/core/SettingsRegistry.hpp
     src/core/SettingsManager.hpp
     src/core/SettingsManager.cpp
-    src/core/SoberController.hpp
-    src/core/SoberController.cpp
+    src/core/DarlingController.hpp
+    src/core/DarlingController.cpp
 )
 
 target_include_directories(mqblox_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)

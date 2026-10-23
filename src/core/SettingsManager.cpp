@@ -93,10 +93,6 @@ QString SettingsManager::darlingPrefixDir() const {
     return homePrefix;
 }
 
-QString SettingsManager::soberBaseDir() const {
-    return macobloxDataDir();
-}
-
 AccountProfile *SettingsManager::activeAccount() {
     for (auto &acc : m_accounts) {
         if (acc.id == m_activeAccountId) return &acc;
@@ -397,37 +393,6 @@ bool SettingsManager::writeClientAppSettingsJson(QString *errMsg) const {
                             QJsonDocument(clientObj).toJson(QJsonDocument::Indented),
                             errMsg)) {
         return false;
-    }
-
-    // 2. Also preserve foreign keys in macobloxDataDir()/config/sober/config.json if present
-    const QString compatCfgPath = soberBaseDir() + "/config/sober/config.json";
-    if (QFileInfo::exists(compatCfgPath)) {
-        QJsonObject rootObj;
-        QJsonObject existingFflags;
-        QFile oldF(compatCfgPath);
-        if (oldF.open(QIODevice::ReadOnly)) {
-            QJsonParseError oldErr{};
-            QJsonDocument oldDoc = QJsonDocument::fromJson(oldF.readAll(), &oldErr);
-            if (oldErr.error == QJsonParseError::NoError && oldDoc.isObject()) {
-                rootObj = oldDoc.object();
-                existingFflags = rootObj.value("fflags").toObject();
-            }
-        }
-        for (const QString &k : kManagedKeys) {
-            existingFflags.remove(k);
-        }
-        for (auto it = managedFlags.begin(); it != managedFlags.end(); ++it) {
-            existingFflags[it.key()] = it.value();
-        }
-        rootObj.remove("bring_back_oof");
-        rootObj["use_console_experience"] = false;
-        rootObj["touch_mode"] = "off";
-        rootObj["fflags"] = existingFflags;
-        if (!writeFileIfChanged(compatCfgPath,
-                                QJsonDocument(rootObj).toJson(QJsonDocument::Indented),
-                                errMsg)) {
-            return false;
-        }
     }
 
     return true;
