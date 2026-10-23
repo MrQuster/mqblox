@@ -1057,7 +1057,9 @@ void DarlingController::handleProcessOutput(const QString &chunk) {
             line.contains("failed to parse uniforms in a shader") ||
             line.contains("mac_util.cc:141") ||
             line.contains("semaphore_timedwait failed") ||
-            line.contains("semaphore_signal failed");
+            line.contains("semaphore_signal failed") ||
+            line.contains("failed to increase FD rlimit") ||
+            line.contains("DefaultUnified");
 
         if (!isBenignNoise &&
             (line.contains("error", Qt::CaseInsensitive) ||

@@ -6,6 +6,17 @@
 #include <QLocalSocket>
 #include <QLoggingCategory>
 #include <QPalette>
+#include <sys/resource.h>
+
+static void maximizeFileDescriptorLimit() {
+    struct rlimit rl;
+    if (getrlimit(RLIMIT_NOFILE, &rl) == 0) {
+        if (rl.rlim_cur < rl.rlim_max) {
+            rl.rlim_cur = rl.rlim_max;
+            setrlimit(RLIMIT_NOFILE, &rl);
+        }
+    }
+}
 
 static const QString IPC_SERVER_NAME = "mqblox_single_instance_ipc_v16";
 
@@ -29,6 +40,7 @@ static void applyGlobalDarkPalette(QApplication &app) {
 }
 
 int main(int argc, char *argv[]) {
+    maximizeFileDescriptorLimit();
     QLoggingCategory::setFilterRules("qt.qpa.wayland.textinput=false\nqt.core.qobject.connect=false");
 
     QApplication app(argc, argv);
