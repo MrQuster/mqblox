@@ -464,6 +464,10 @@ QString DarlingController::collectDiagnosticsReport() const {
                .arg(m_cpuThreads)
                .arg(m_cpuAvx ? "Да" : "Нет")
                .arg(m_cpuAvx2 ? "Да" : "Нет");
+    if (!m_cpuAvx2) {
+        out << "  ⚠️ Аппаратное ограничение CPU: Отсутствует набор инструкций AVX2 (Sandy Bridge / Ivy Bridge). "
+               "Клиент RobloxPlayer (0.744+) использует AVX2 (vpbroadcastd/vpermd) для расчёта 3D-деформации мешей при входе в плейсы, вызывая SIGILL (#UD).";
+    }
     out << QString("Видеокарта и VRAM: %1").arg(st.gpuSummary);
     if (!m_mesaVersion.isEmpty() || !m_glRenderer.isEmpty()) {
         out << QString("Графика хоста (OpenGL): Mesa %1 | Рендерер: %2 | Core Profile: %3")

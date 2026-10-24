@@ -698,26 +698,29 @@ static int macoblox_should_skip_foreign_window_command(int learn_renderer) {
 }
 
 static void macoblox_trace_window_draw(unsigned int mode, int count) {
-    unsigned int (*get_error)(void) =
-        (unsigned int (*)(void))dlsym(RTLD_NEXT, "glGetError");
-    unsigned int draw_error = get_error ? get_error() : 0;
-    void* (*current_surface)(int) =
-        (void* (*)(int))dlsym(RTLD_NEXT, "eglGetCurrentSurface");
-    if (!current_surface || !current_surface(0x3059))
+    if (__sync_add_and_fetch(&macoblox_gl_traced_window_draws, 1) > 16)
         return;
 
-    void (*get_integer)(unsigned int, int*) =
-        (void (*)(unsigned int, int*))dlsym(RTLD_NEXT, "glGetIntegerv");
-    if (!get_integer)
+    static unsigned int (*get_error)(void) = 0;
+    static void* (*current_surface)(int) = 0;
+    static void (*get_integer)(unsigned int, int*) = 0;
+    static int gl_fn_inited = 0;
+    if (!gl_fn_inited) {
+        get_error = (unsigned int (*)(void))dlsym(RTLD_NEXT, "glGetError");
+        current_surface = (void* (*)(int))dlsym(RTLD_NEXT, "eglGetCurrentSurface");
+        get_integer = (void (*)(unsigned int, int*))dlsym(RTLD_NEXT, "glGetIntegerv");
+        gl_fn_inited = 1;
+    }
+    if (!current_surface || !current_surface(0x3059) || !get_integer)
         return;
+
+    unsigned int draw_error = get_error ? get_error() : 0;
     int framebuffer = -1;
     get_integer(0x8CA6U, &framebuffer); // GL_DRAW_FRAMEBUFFER_BINDING
     if (framebuffer)
         return;
 
-    long sequence = __sync_add_and_fetch(&macoblox_gl_traced_window_draws, 1);
-    if (sequence > 16)
-        return;
+    long sequence = macoblox_gl_traced_window_draws;
 
     int program = 0;
     int vertex_array = 0;
@@ -1284,6 +1287,8 @@ static int trace_exceptions_enabled(void) {
     return value && *value == '1';
 }
 
+extern char* strstr(const char*, const char*);
+
 void my_cxa_throw(void* thrown_exception, void* tinfo, void (*dest)(void*)) {
     if (!trace_exceptions_enabled()) {
         void (*real_throw)(void*, void*, void(*)(void*)) =
@@ -1311,36 +1316,55 @@ void my_cxa_throw(void* thrown_exception, void* tinfo, void (*dest)(void*)) {
                 }
             }
         }
-        // Safely check if thrown exception derives from std::exception via __dynamic_cast
+        // Safely check if thrown exception derives from std::exception
+        void* std_exc = 0;
         typedef void* (*dcast_fn)(const void*, const void*, const void*, long);
         dcast_fn dynamic_cast_ptr = (dcast_fn)dlsym(RTLD_DEFAULT, "__dynamic_cast");
         void* std_exc_ti = dlsym(RTLD_DEFAULT, "_ZTISt9exception");
         if (dynamic_cast_ptr && std_exc_ti && thrown_exception) {
-            void* std_exc = dynamic_cast_ptr(thrown_exception, tinfo, std_exc_ti, 0);
-            if (std_exc) {
-                int pfd[2];
-                if (pipe(pfd) == 0) {
-                    void* vt = 0;
-                    if (write(pfd[1], std_exc, sizeof(void*)) == sizeof(void*)) {
-                        read(pfd[0], &vt, sizeof(void*));
-                        void* what_slot = 0;
-                        if (vt && write(pfd[1], (char*)vt + 2 * sizeof(void*), sizeof(void*)) == sizeof(void*)) {
-                            read(pfd[0], &what_slot, sizeof(void*));
-                            if (what_slot) {
-                                const char* (*what_fn)(void*) = (const char* (*)(void*))what_slot;
-                                const char* msg = what_fn(std_exc);
-                                if (msg && write(pfd[1], msg, 1) == 1) {
-                                    char dummy; read(pfd[0], &dummy, 1);
-                                    write_str("[MacOBlox Hook] std::exception what(): ");
-                                    write_str(msg);
-                                    write_str("\n");
-                                }
+            std_exc = dynamic_cast_ptr(thrown_exception, tinfo, std_exc_ti, -1L);
+        }
+        if (!std_exc && thrown_exception && mangled && (strstr(mangled, "runtime_error") || strstr(mangled, "exception"))) {
+            int probe_pfd[2];
+            if (pipe(probe_pfd) == 0) {
+                void** vt = 0;
+                if (write(probe_pfd[1], thrown_exception, sizeof(void*)) == sizeof(void*)) {
+                    read(probe_pfd[0], &vt, sizeof(void*));
+                    void* rtti = 0;
+                    if (vt && write(probe_pfd[1], &vt[-1], sizeof(void*)) == sizeof(void*)) {
+                        read(probe_pfd[0], &rtti, sizeof(void*));
+                        if (rtti == tinfo) {
+                            std_exc = thrown_exception;
+                        }
+                    }
+                }
+                close(probe_pfd[0]);
+                close(probe_pfd[1]);
+            }
+        }
+        if (std_exc) {
+            int pfd[2];
+            if (pipe(pfd) == 0) {
+                void* vt = 0;
+                if (write(pfd[1], std_exc, sizeof(void*)) == sizeof(void*)) {
+                    read(pfd[0], &vt, sizeof(void*));
+                    void* what_slot = 0;
+                    if (vt && write(pfd[1], (char*)vt + 2 * sizeof(void*), sizeof(void*)) == sizeof(void*)) {
+                        read(pfd[0], &what_slot, sizeof(void*));
+                        if (what_slot) {
+                            const char* (*what_fn)(void*) = (const char* (*)(void*))what_slot;
+                            const char* msg = what_fn(std_exc);
+                            if (msg && write(pfd[1], msg, 1) == 1) {
+                                char dummy; read(pfd[0], &dummy, 1);
+                                write_str("[MacOBlox Hook] std::exception what(): ");
+                                write_str(msg);
+                                write_str("\n");
                             }
                         }
                     }
-                    close(pfd[0]);
-                    close(pfd[1]);
                 }
+                close(pfd[0]);
+                close(pfd[1]);
             }
         }
     }
